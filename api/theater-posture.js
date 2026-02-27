@@ -1,7 +1,7 @@
 /**
  * Theater Posture API - Aggregates military aircraft by theater
  * Caches results in Upstash Redis for cross-user efficiency
- * TTL: 5 minutes (matches OpenSky refresh rate)
+ * TTL: 10 minutes (exceeds 5-min client poll to guarantee cache hits)
  */
 
 import { getCachedJson, setCachedJson } from './_upstash-cache.js';
@@ -10,12 +10,17 @@ export const config = {
   runtime: 'edge',
 };
 
-const CACHE_TTL_SECONDS = 300; // 5 minutes
+const CACHE_TTL_SECONDS = 600; // 10 minutes — exceeds client poll interval (5 min)
 const STALE_CACHE_TTL_SECONDS = 86400; // 24 hours - serve stale data when API is down
 const BACKUP_CACHE_TTL_SECONDS = 604800; // 7 days - last resort backup
 const CACHE_KEY = 'theater-posture:v4';
 const STALE_CACHE_KEY = 'theater-posture:stale:v4';
 const BACKUP_CACHE_KEY = 'theater-posture:backup:v4';
+
+// Server-side rate limiter: at most one OpenSky fetch per MIN_FETCH_INTERVAL_MS
+const MIN_FETCH_INTERVAL_MS = 600_000; // 10 minutes
+let lastOpenSkyFetchTime = 0;
+let inflightFetch = null; // coalesce concurrent requests into one fetch
 
 // Theater definitions (matches client-side POSTURE_THEATERS)
 const POSTURE_THEATERS = [
@@ -519,43 +524,84 @@ export default async function handler(req) {
       });
     }
 
-    // Fetch and calculate - try OpenSky first, then Wingbits fallback
-    console.log('[TheaterPosture] Fetching fresh data...');
-    let flights;
-    let source = 'opensky';
+    // Rate-limit guard: if we fetched recently, serve stale cache instead
+    // of burning another OpenSky API call.
+    const now = Date.now();
+    if (now - lastOpenSkyFetchTime < MIN_FETCH_INTERVAL_MS) {
+      const stale = await getCachedJson(STALE_CACHE_KEY);
+      if (stale) {
+        console.log('[TheaterPosture] Rate-limited — serving stale cache');
+        return Response.json({
+          ...stale,
+          cached: true,
+          stale: true,
+        }, {
+          headers: {
+            ...corsHeaders,
+            'Cache-Control': 'public, max-age=60, s-maxage=60, stale-while-revalidate=30',
+          },
+        });
+      }
+      // No stale cache available — fall through and fetch anyway
+    }
 
-    try {
-      flights = await fetchMilitaryFlights();
-    } catch (openskyError) {
-      console.warn('[TheaterPosture] OpenSky failed:', openskyError.message);
-      console.log('[TheaterPosture] Trying Wingbits fallback...');
-
-      flights = await fetchMilitaryFlightsFromWingbits();
-      if (flights && flights.length > 0) {
-        source = 'wingbits';
-        console.log('[TheaterPosture] Wingbits fallback succeeded:', flights.length, 'flights');
-      } else {
-        // Both failed, re-throw OpenSky error to trigger cache fallback
-        throw openskyError;
+    // Coalesce concurrent requests into a single OpenSky fetch
+    if (inflightFetch) {
+      console.log('[TheaterPosture] Coalescing with in-flight fetch');
+      const coalesced = await inflightFetch;
+      if (coalesced) {
+        return Response.json({ ...coalesced, cached: true }, {
+          headers: {
+            ...corsHeaders,
+            'Cache-Control': 'public, max-age=60, s-maxage=60, stale-while-revalidate=30',
+          },
+        });
       }
     }
 
-    const postures = calculatePostures(flights);
+    // Fetch and calculate - try OpenSky first, then Wingbits fallback
+    async function doFetch() {
+      console.log('[TheaterPosture] Fetching fresh data...');
+      let flights;
+      let source = 'opensky';
 
-    const result = {
-      postures,
-      totalFlights: flights.length,
-      timestamp: new Date().toISOString(),
-      cached: false,
-      source, // 'opensky' or 'wingbits'
-    };
+      try {
+        flights = await fetchMilitaryFlights();
+      } catch (openskyError) {
+        console.warn('[TheaterPosture] OpenSky failed:', openskyError.message);
+        console.log('[TheaterPosture] Trying Wingbits fallback...');
 
-    // Cache the result (regular, stale, and long-term backup)
-    await Promise.all([
-      setCachedJson(CACHE_KEY, result, CACHE_TTL_SECONDS),
-      setCachedJson(STALE_CACHE_KEY, result, STALE_CACHE_TTL_SECONDS),
-      setCachedJson(BACKUP_CACHE_KEY, result, BACKUP_CACHE_TTL_SECONDS),
-    ]);
+        flights = await fetchMilitaryFlightsFromWingbits();
+        if (flights && flights.length > 0) {
+          source = 'wingbits';
+          console.log('[TheaterPosture] Wingbits fallback succeeded:', flights.length, 'flights');
+        } else {
+          throw openskyError;
+        }
+      }
+
+      return { flights, source };
+    }
+
+    inflightFetch = doFetch().then(async ({ flights, source }) => {
+      lastOpenSkyFetchTime = Date.now();
+      const postures = calculatePostures(flights);
+      const result = {
+        postures,
+        totalFlights: flights.length,
+        timestamp: new Date().toISOString(),
+        cached: false,
+        source,
+      };
+      await Promise.all([
+        setCachedJson(CACHE_KEY, result, CACHE_TTL_SECONDS),
+        setCachedJson(STALE_CACHE_KEY, result, STALE_CACHE_TTL_SECONDS),
+        setCachedJson(BACKUP_CACHE_KEY, result, BACKUP_CACHE_TTL_SECONDS),
+      ]);
+      return result;
+    }).finally(() => { inflightFetch = null; });
+
+    const result = await inflightFetch;
 
     return Response.json(result, {
       headers: {
