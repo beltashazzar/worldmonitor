@@ -115,8 +115,11 @@ export function generateId(): string {
 
 export function isMobileDevice(): boolean {
   const isMobileWidth = window.innerWidth < 768;
-  const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
-  return isMobileWidth || isTouchDevice;
+  // pointer:coarse alone doesn't mean mobile — touchscreen desktops/laptops
+  // report coarse but should still get the full DeckGL experience.
+  // Only treat as mobile when the screen is also narrow.
+  const isTouchOnly = window.matchMedia('(pointer: coarse) and (hover: none)').matches;
+  return isMobileWidth || (isTouchOnly && window.innerWidth < 1024);
 }
 
 export function chunkArray<T>(items: T[], size: number): T[][] {
