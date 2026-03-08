@@ -6,6 +6,7 @@ export class CIIPanel extends Panel {
   private scores: CountryScore[] = [];
   private focalPointsReady = false;
   private onShareStory?: (code: string, name: string) => void;
+  private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     super({
@@ -26,6 +27,14 @@ export class CIIPanel extends Panel {
         Focal Point Detection correlates news entities with map signals for accurate scoring.`,
     });
     this.showLoading('Scanning intelligence feeds');
+
+    // Fallback: render with whatever data exists if focal points never arrive
+    this.fallbackTimer = setTimeout(() => {
+      if (!this.focalPointsReady) {
+        console.warn('[CIIPanel] Focal points not received after 90s, rendering with available data');
+        this.refresh(true);
+      }
+    }, 90_000);
   }
 
   public setShareStoryHandler(handler: (code: string, name: string) => void): void {
@@ -106,6 +115,10 @@ export class CIIPanel extends Panel {
 
     if (forceLocal) {
       this.focalPointsReady = true;
+      if (this.fallbackTimer) {
+        clearTimeout(this.fallbackTimer);
+        this.fallbackTimer = null;
+      }
       console.log('[CIIPanel] Focal points ready, calculating scores...');
     }
 

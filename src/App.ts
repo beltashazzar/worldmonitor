@@ -2869,8 +2869,8 @@ export class App {
         ? await clusterNewsHybrid(this.allNews)
         : await analysisWorker.clusterNews(this.allNews);
 
-      // Update AI Insights panel with new clusters (if ML available)
-      if (mlWorker.isAvailable && this.latestClusters.length > 0) {
+      // Update AI Insights panel with new clusters
+      if (this.latestClusters.length > 0) {
         const insightsPanel = this.panels['insights'] as InsightsPanel | undefined;
         insightsPanel?.updateInsights(this.latestClusters);
       }

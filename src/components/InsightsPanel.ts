@@ -306,11 +306,11 @@ export class InsightsPanel extends Panel {
         this.lastFocalPoints = focalSummary.focalPoints;
         if (focalSummary.focalPoints.length > 0) {
           focalPointDetector.logSummary();
-          // Ingest news for CII BEFORE signaling (so CII has data when it calculates)
-          ingestNewsForCII(clusters);
-          // Signal CII to refresh now that focal points AND news data are available
-          window.dispatchEvent(new CustomEvent('focal-points-ready'));
         }
+        // Ingest news for CII and signal readiness regardless of focal point count —
+        // CII uses protests, conflicts, military data too, not just focal points
+        ingestNewsForCII(clusters);
+        window.dispatchEvent(new CustomEvent('focal-points-ready'));
       } else {
         // Tech variant: no geopolitical signals, just summarize tech news
         signalSummary = {
@@ -362,10 +362,12 @@ export class InsightsPanel extends Panel {
         const geoContext = SITE_VARIANT === 'full'
           ? (focalSummary.aiContext || signalSummary.aiContext) + theaterContext
           : '';
-        const result = await generateSummary(titles, (_step, _total, msg) => {
-          // Show sub-progress for summarization
-          this.setProgress(3, totalSteps, `Generating brief: ${msg}`);
-        }, geoContext);
+        const result = await Promise.race([
+          generateSummary(titles, (_step, _total, msg) => {
+            this.setProgress(3, totalSteps, `Generating brief: ${msg}`);
+          }, geoContext),
+          new Promise<null>(resolve => setTimeout(() => resolve(null), 30_000)),
+        ]);
 
         if (result) {
           worldBrief = result.summary;
@@ -374,6 +376,8 @@ export class InsightsPanel extends Panel {
           usedCachedBrief = false;
           void setPersistentCache(InsightsPanel.BRIEF_CACHE_KEY, { summary: worldBrief });
           console.log(`[InsightsPanel] Brief generated${result.cached ? ' (cached)' : ''}${geoContext ? ' (with geo context)' : ''}`);
+        } else {
+          console.warn('[InsightsPanel] Brief generation timed out after 30s');
         }
       } else {
         usedCachedBrief = true;
@@ -382,9 +386,12 @@ export class InsightsPanel extends Panel {
 
       this.setDataBadge(worldBrief ? (usedCachedBrief ? 'cached' : 'live') : 'unavailable');
 
-      // Step 4: Wait for parallel analysis to complete
+      // Step 4: Wait for parallel analysis (with timeout)
       this.setProgress(4, totalSteps, 'Multi-perspective analysis...');
-      await parallelPromise;
+      await Promise.race([
+        parallelPromise,
+        new Promise<void>(resolve => setTimeout(resolve, 15_000)),
+      ]);
 
       this.renderInsights(importantClusters, sentiments, worldBrief);
     } catch (error) {

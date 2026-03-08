@@ -30,8 +30,14 @@ const GAMMA_API = 'https://gamma-api.polymarket.com';
 const breaker = createCircuitBreaker<PredictionMarket[]>({ name: 'Polymarket' });
 
 // Track whether direct browser→Polymarket fetch works
-// Cloudflare blocks server-side TLS but browsers pass JA3 fingerprint checks
-let directFetchWorks: boolean | null = null;
+// Cloudflare blocks cross-origin requests (no CORS headers), so skip unless
+// we're running on polymarket.com itself (never true for self-hosted deploys).
+let directFetchWorks: boolean | null = (() => {
+  if (typeof window === 'undefined') return null;
+  const host = window.location.hostname;
+  if (host.includes('polymarket.com')) return null; // might work same-origin
+  return false; // cross-origin will always CORS-fail
+})();
 
 async function polyFetch(endpoint: 'events' | 'markets', params: Record<string, string>): Promise<Response> {
   const qs = new URLSearchParams(params).toString();
