@@ -74,6 +74,7 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   ucdpEvents: false,
   displacement: false,
   climate: false,
+  xSentiment: true,
   // Tech layers (disabled in full variant)
   startupHubs: false,
   cloudRegions: false,
@@ -108,6 +109,7 @@ export const MOBILE_DEFAULT_MAP_LAYERS: MapLayers = {
   ucdpEvents: false,
   displacement: false,
   climate: false,
+  xSentiment: true,
   // Tech layers (disabled in full variant)
   startupHubs: false,
   cloudRegions: false,

@@ -26,6 +26,7 @@ import { fetchCachedTheaterPosture } from '@/services/cached-theater-posture';
 import { ingestProtestsForCII, ingestMilitaryForCII, ingestNewsForCII, ingestOutagesForCII, ingestConflictsForCII, ingestUcdpForCII, ingestHapiForCII, ingestDisplacementForCII, ingestClimateForCII, startLearning, isInLearningMode, calculateCII, getCountryData, TIER1_COUNTRIES } from '@/services/country-instability';
 import { dataFreshness, type DataSourceId } from '@/services/data-freshness';
 import { fetchConflictEvents } from '@/services/conflicts';
+import { fetchXSentiment } from '@/services/x-sentiment';
 import { fetchUcdpClassifications } from '@/services/ucdp';
 import { fetchHapiSummary } from '@/services/hapi';
 import { fetchUcdpEvents, deduplicateAgainstAcled } from '@/services/ucdp-events';
@@ -1905,6 +1906,9 @@ export class App {
 
     // AI Insights Panel (desktop only - hides itself on mobile)
     const insightsPanel = new InsightsPanel();
+    insightsPanel.setXPulseEventClickHandler((lat, lon) => {
+      this.map?.setCenter(lat, lon, 5);
+    });
     this.panels['insights'] = insightsPanel;
 
     // Add panels to grid in saved order
@@ -3309,6 +3313,20 @@ export class App {
       } catch (error) {
         console.error('[Intelligence] Climate anomalies fetch failed:', error);
         dataFreshness.recordError('climate', String(error));
+      }
+    })());
+
+    // Fetch X Pulse sentiment events (xAI Grok x_search)
+    tasks.push((async () => {
+      try {
+        const events = await fetchXSentiment();
+        const insightsPanel = this.panels['insights'] as InsightsPanel | undefined;
+        insightsPanel?.setXPulseEvents(events);
+        if (this.mapLayers.xSentiment && events.length > 0) {
+          this.map?.setXSentimentEvents(events);
+        }
+      } catch (error) {
+        console.error('[Intelligence] X Sentiment fetch failed:', error);
       }
     })());
 

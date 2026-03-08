@@ -11,6 +11,7 @@ import { escapeHtml, sanitizeUrl } from '@/utils/sanitize';
 import { SITE_VARIANT } from '@/config';
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
 import type { ClusteredEvent, FocalPoint, MilitaryFlight } from '@/types';
+import type { XSentimentEvent } from '@/services/x-sentiment';
 
 export class InsightsPanel extends Panel {
   private isHidden = false;
@@ -18,6 +19,8 @@ export class InsightsPanel extends Panel {
   private cachedBrief: string | null = null;
   private lastMissedStories: AnalyzedHeadline[] = [];
   private lastConvergenceZones: RegionalConvergence[] = [];
+  private lastXPulseEvents: XSentimentEvent[] = [];
+  private onXPulseEventClick?: (lat: number, lon: number) => void;
   private lastFocalPoints: FocalPoint[] = [];
   private lastMilitaryFlights: MilitaryFlight[] = [];
   private static readonly BRIEF_COOLDOWN_MS = 120000; // 2 min cooldown (API has limits)
@@ -46,6 +49,14 @@ export class InsightsPanel extends Panel {
 
   public setMilitaryFlights(flights: MilitaryFlight[]): void {
     this.lastMilitaryFlights = flights;
+  }
+
+  public setXPulseEvents(events: XSentimentEvent[]): void {
+    this.lastXPulseEvents = events;
+  }
+
+  public setXPulseEventClickHandler(handler: (lat: number, lon: number) => void): void {
+    this.onXPulseEventClick = handler;
   }
 
   private getTheaterPostureContext(): string {
@@ -395,8 +406,11 @@ export class InsightsPanel extends Panel {
     const statsHtml = this.renderStats(clusters);
     const missedHtml = this.renderMissedStories();
 
+    const xPulseHtml = this.renderXPulse();
+
     this.setContent(`
       ${briefHtml}
+      ${xPulseHtml}
       ${focalPointsHtml}
       ${convergenceHtml}
       ${sentimentOverview}
@@ -407,6 +421,17 @@ export class InsightsPanel extends Panel {
       </div>
       ${missedHtml}
     `);
+
+    // Bind X Pulse click handlers
+    this.content.querySelectorAll('.xpulse-event').forEach(el => {
+      el.addEventListener('click', () => {
+        const lat = Number((el as HTMLElement).dataset.lat);
+        const lon = Number((el as HTMLElement).dataset.lon);
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          this.onXPulseEventClick?.(lat, lon);
+        }
+      });
+    });
   }
 
   private renderWorldBrief(brief: string): string {
@@ -552,6 +577,56 @@ export class InsightsPanel extends Panel {
       <div class="insights-section insights-missed">
         <div class="insights-section-title">🎯 ML DETECTED</div>
         ${storiesHtml}
+      </div>
+    `;
+  }
+
+  private renderXPulse(): string {
+    if (this.lastXPulseEvents.length === 0) {
+      return '';
+    }
+
+    const severityColors: Record<string, string> = {
+      critical: '#ef4444',
+      high: '#f97316',
+      medium: '#eab308',
+    };
+
+    const categoryIcons: Record<string, string> = {
+      conflict: '&#9876;',
+      disaster: '&#127754;',
+      political: '&#127963;',
+      economic: '&#128200;',
+      health: '&#127973;',
+      cyber: '&#128274;',
+    };
+
+    const eventsHtml = this.lastXPulseEvents.map(e => {
+      const color = severityColors[e.severity] || '#eab308';
+      const icon = categoryIcons[e.category] || '&#9888;';
+      return `
+        <div class="xpulse-event" data-lat="${e.lat}" data-lon="${e.lon}" title="${escapeHtml(e.summary)}">
+          <div class="xpulse-event-header">
+            <span class="xpulse-severity" style="color: ${color}">${icon}</span>
+            <span class="xpulse-headline">${escapeHtml(e.headline)}</span>
+          </div>
+          <div class="xpulse-location">${escapeHtml(e.location)}</div>
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="insights-section insights-xpulse">
+        <div class="insights-section-title">&#120143; PULSE</div>
+        ${eventsHtml}
+        <style>
+          .insights-xpulse { border-top: 1px solid #222; padding-top: 8px; margin-top: 4px; }
+          .xpulse-event { padding: 6px 8px; cursor: pointer; border-radius: 4px; transition: background 0.15s; }
+          .xpulse-event:hover { background: #1a1a1a; }
+          .xpulse-event-header { display: flex; align-items: baseline; gap: 6px; }
+          .xpulse-severity { font-size: 13px; flex-shrink: 0; }
+          .xpulse-headline { font-size: 12px; color: #ddd; font-weight: 500; line-height: 1.3; }
+          .xpulse-location { font-size: 10px; color: #666; margin-left: 20px; margin-top: 2px; }
+        </style>
       </div>
     `;
   }

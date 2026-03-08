@@ -516,6 +516,7 @@ export interface MapLayers {
   ucdpEvents: boolean;
   displacement: boolean;
   climate: boolean;
+  xSentiment: boolean;
   // Tech variant layers
   startupHubs: boolean;
   cloudRegions: boolean;

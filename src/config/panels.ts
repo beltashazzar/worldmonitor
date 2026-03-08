@@ -72,6 +72,7 @@ const FULL_MAP_LAYERS: MapLayers = {
   ucdpEvents: false,
   displacement: false,
   climate: false,
+  xSentiment: true,
   // Tech layers (disabled in full variant)
   startupHubs: false,
   cloudRegions: false,
@@ -106,6 +107,7 @@ const FULL_MOBILE_MAP_LAYERS: MapLayers = {
   ucdpEvents: false,
   displacement: false,
   climate: false,
+  xSentiment: true,
   // Tech layers (disabled in full variant)
   startupHubs: false,
   cloudRegions: false,
@@ -180,6 +182,7 @@ const TECH_MAP_LAYERS: MapLayers = {
   ucdpEvents: false,
   displacement: false,
   climate: false,
+  xSentiment: false,
   // Tech layers (enabled in tech variant)
   startupHubs: true,
   cloudRegions: true,
@@ -214,6 +217,7 @@ const TECH_MOBILE_MAP_LAYERS: MapLayers = {
   ucdpEvents: false,
   displacement: false,
   climate: false,
+  xSentiment: false,
   // Tech layers (limited on mobile)
   startupHubs: true,
   cloudRegions: false,

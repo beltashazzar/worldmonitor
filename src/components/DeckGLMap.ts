@@ -39,6 +39,7 @@ import type {
 import { ArcLayer } from '@deck.gl/layers';
 import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 import type { WeatherAlert } from '@/services/weather';
+import type { XSentimentEvent } from '@/services/x-sentiment';
 import { escapeHtml } from '@/utils/sanitize';
 import { debounce, rafSchedule } from '@/utils/index';
 import {
@@ -165,6 +166,9 @@ const COLORS = {
   ucdpStateBased: [255, 50, 50, 200] as [number, number, number, number],
   ucdpNonState: [255, 165, 0, 200] as [number, number, number, number],
   ucdpOneSided: [255, 255, 0, 200] as [number, number, number, number],
+  xpulseCritical: [239, 68, 68, 220] as [number, number, number, number],
+  xpulseHigh: [249, 115, 22, 220] as [number, number, number, number],
+  xpulseMedium: [234, 179, 8, 200] as [number, number, number, number],
 };
 
 // SVG icons as data URLs for different marker shapes
@@ -216,6 +220,7 @@ export class DeckGLMap {
   private ucdpEvents: UcdpGeoEvent[] = [];
   private displacementFlows: DisplacementFlow[] = [];
   private climateAnomalies: ClimateAnomaly[] = [];
+  private xSentimentEvents: XSentimentEvent[] = [];
 
   // Country highlight state
   private countryGeoJsonLoaded = false;
@@ -955,6 +960,11 @@ export class DeckGLMap {
     // Climate anomalies heatmap layer
     if (mapLayers.climate && this.climateAnomalies.length > 0) {
       layers.push(this.createClimateHeatmapLayer());
+    }
+
+    // X Pulse sentiment markers (always visible when data exists — max 6 markers)
+    if (mapLayers.xSentiment && this.xSentimentEvents.length > 0) {
+      layers.push(this.createXSentimentLayer());
     }
 
     // Tech variant layers (Supercluster-based deck.gl layers for HQs and events)
@@ -2396,6 +2406,7 @@ export class DeckGLMap {
           { key: 'protests', label: 'Protests', icon: '&#128226;' },
           { key: 'ucdpEvents', label: 'UCDP Events', icon: '&#9876;' },
           { key: 'displacement', label: 'Displacement Flows', icon: '&#128101;' },
+          { key: 'xSentiment', label: 'X Pulse', icon: '&#120143;' },
           { key: 'climate', label: 'Climate Anomalies', icon: '&#127787;' },
           { key: 'weather', label: 'Weather Alerts', icon: '&#9928;' },
           { key: 'outages', label: 'Internet Outages', icon: '&#128225;' },
@@ -2812,6 +2823,29 @@ export class DeckGLMap {
     });
   }
 
+  private createXSentimentLayer(): ScatterplotLayer<XSentimentEvent> {
+    return new ScatterplotLayer<XSentimentEvent>({
+      id: 'x-sentiment-layer',
+      data: this.xSentimentEvents,
+      getPosition: (d) => [d.lon, d.lat],
+      getRadius: 8000,
+      getFillColor: (d) => {
+        switch (d.severity) {
+          case 'critical': return COLORS.xpulseCritical;
+          case 'high': return COLORS.xpulseHigh;
+          case 'medium': return COLORS.xpulseMedium;
+          default: return COLORS.xpulseMedium;
+        }
+      },
+      radiusMinPixels: 6,
+      radiusMaxPixels: 16,
+      pickable: true,
+      stroked: true,
+      getLineColor: [255, 255, 255, 180],
+      lineWidthMinPixels: 2,
+    });
+  }
+
   // Data setters - all use render() for debouncing
   public setEarthquakes(earthquakes: Earthquake[]): void {
     this.earthquakes = earthquakes;
@@ -2896,6 +2930,11 @@ export class DeckGLMap {
 
   public setClimateAnomalies(anomalies: ClimateAnomaly[]): void {
     this.climateAnomalies = anomalies;
+    this.render();
+  }
+
+  public setXSentimentEvents(events: XSentimentEvent[]): void {
+    this.xSentimentEvents = events;
     this.render();
   }
 

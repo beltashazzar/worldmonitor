@@ -289,6 +289,12 @@ export class MapContainer {
     }
   }
 
+  public setXSentimentEvents(events: import('@/services/x-sentiment').XSentimentEvent[]): void {
+    if (this.useDeckGL) {
+      this.deckGLMap?.setXSentimentEvents(events);
+    }
+  }
+
   public setNewsLocations(data: Array<{ lat: number; lon: number; title: string; threatLevel: string }>): void {
     if (this.useDeckGL) {
       this.deckGLMap?.setNewsLocations(data);
