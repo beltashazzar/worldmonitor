@@ -18,7 +18,7 @@ const STALE_CACHE_KEY = 'theater-posture:stale:v4';
 const BACKUP_CACHE_KEY = 'theater-posture:backup:v4';
 
 // Server-side rate limiter: at most one OpenSky fetch per MIN_FETCH_INTERVAL_MS
-const MIN_FETCH_INTERVAL_MS = 600_000; // 10 minutes
+const MIN_FETCH_INTERVAL_MS = 3_600_000; // 60 minutes — anonymous OpenSky allows ~25 req/day
 let lastOpenSkyFetchTime = 0;
 let inflightFetch = null; // coalesce concurrent requests into one fetch
 
@@ -583,8 +583,8 @@ export default async function handler(req) {
       return { flights, source };
     }
 
+    lastOpenSkyFetchTime = Date.now(); // update BEFORE fetch to prevent retry storms on 429
     inflightFetch = doFetch().then(async ({ flights, source }) => {
-      lastOpenSkyFetchTime = Date.now();
       const postures = calculatePostures(flights);
       const result = {
         postures,
