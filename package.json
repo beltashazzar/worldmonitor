@@ -65,6 +65,9 @@
   },
   "overrides": {
     "fast-xml-parser": "^5.7.2",
-    "protobufjs": "^8.0.3"
+    "protobufjs": "^8.0.3",
+    "minimatch": "^10.0.0",
+    "picomatch": "^4.0.4",
+    "serialize-javascript": "^7.0.3"
   }
 }
