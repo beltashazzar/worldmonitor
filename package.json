@@ -62,5 +62,9 @@
     "onnxruntime-web": "^1.23.2",
     "topojson-client": "^3.1.0",
     "youtubei.js": "^16.0.1"
+  },
+  "overrides": {
+    "fast-xml-parser": "^5.7.2",
+    "protobufjs": "^8.0.3"
   }
 }
