@@ -1,5 +1,6 @@
 // X Sentiment API - global crisis events from X/Twitter via xAI Grok
 // Uses xAI Responses API with x_search + web_search tools
+// LLM_CAPABILITY_TIER: x-sentiment (requires xAI x_search tool)
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
 import { getCachedJson, setCachedJson } from './_upstash-cache.js';
 import { recordCacheTelemetry } from './_cache-telemetry.js';
@@ -165,7 +166,7 @@ export default async function handler(req) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'grok-4-1-fast-reasoning',
+        model: process.env.XAI_MODEL || 'grok-4.3',
         tools: [
           { type: 'web_search' },
           { type: 'x_search' },
