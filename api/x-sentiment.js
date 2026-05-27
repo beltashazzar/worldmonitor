@@ -159,7 +159,10 @@ export default async function handler(req) {
   }
 
   try {
-    const response = await fetch('https://api.x.ai/v1/responses', {
+    // Routed through xai-oauth-proxy (Premium+ OAuth bridge) — direct console.x.ai
+    // key is dead (2026-05-26). Proxy injects a fresh OAuth Bearer; the key sent
+    // below is ignored. Override with XAI_RESPONSES_URL to go direct again.
+    const response = await fetch(process.env.XAI_RESPONSES_URL || 'http://xai-oauth-proxy:8000/v1/responses', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
