@@ -72,9 +72,12 @@ async function fetchGedPage(version, page) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
+    const token = (typeof process !== 'undefined' && process.env && process.env.UCDP_ACCESS_TOKEN) || '';
+    const headers = { Accept: 'application/json' };
+    if (token) headers['x-ucdp-access-token'] = token;
     const response = await fetch(
       `https://ucdpapi.pcr.uu.se/api/gedevents/${version}?pagesize=${UCDP_PAGE_SIZE}&page=${page}`,
-      { headers: { Accept: 'application/json' }, signal: controller.signal }
+      { headers, signal: controller.signal }
     );
     if (!response.ok) {
       throw new Error(`UCDP GED API error (${version}, page ${page}): ${response.status}`);

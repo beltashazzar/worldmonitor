@@ -1,7 +1,17 @@
 // UCDP (Uppsala Conflict Data Program) proxy
 // Returns conflict classification per country with intensity levels
-// No auth required - public API
+// As of 2026 the UCDP API requires an access token (x-ucdp-access-token header).
+// Token is free but manually issued — email mertcan.yilmaz@pcr.uu.se. Set it via
+// the UCDP_ACCESS_TOKEN env var; without it UCDP returns 401 and this panel stays empty.
 export const config = { runtime: 'edge' };
+
+// Build request headers, attaching the UCDP token when configured.
+const ucdpHeaders = () => {
+  const token = (typeof process !== 'undefined' && process.env && process.env.UCDP_ACCESS_TOKEN) || '';
+  const headers = { 'Accept': 'application/json' };
+  if (token) headers['x-ucdp-access-token'] = token;
+  return headers;
+};
 
 import { getCachedJson, setCachedJson } from './_upstash-cache.js';
 import { recordCacheTelemetry } from './_cache-telemetry.js';
@@ -62,7 +72,7 @@ export default async function handler(req) {
 
     while (page < totalPages) {
       const response = await fetch(`https://ucdpapi.pcr.uu.se/api/ucdpprioconflict/24.1?pagesize=100&page=${page}`, {
-        headers: { 'Accept': 'application/json' },
+        headers: ucdpHeaders(),
       });
 
       if (!response.ok) {

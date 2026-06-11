@@ -1487,6 +1487,13 @@ export class App {
           <div class="map-resize-handle" id="mapResizeHandle"></div>
         </div>
         <div class="panels-grid" id="panelsGrid"></div>
+        <a class="skyosint-tile" href="https://skyosint.io/app" target="_blank" rel="noopener noreferrer">
+          <div class="skyosint-tile-icon">🛰</div>
+          <div class="skyosint-tile-body">
+            <div class="skyosint-tile-title">SkyOSINT <span class="skyosint-tile-launch">LAUNCH ↗</span></div>
+            <div class="skyosint-tile-desc">Live Cesium globe — AIS ships, ADS-B aircraft &amp; satellite tracking. Opens in a new tab (the site blocks embedding).</div>
+          </div>
+        </a>
       </div>
       <div class="modal-overlay" id="settingsModal">
         <div class="modal">

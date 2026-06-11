@@ -685,15 +685,14 @@ export const INTEL_SOURCES: Feed[] = [
   { name: 'Carnegie', url: rss('https://carnegieendowment.org/rss/'), type: 'research' },
   { name: 'FAS', url: rss('https://fas.org/feed/'), type: 'research' },
   { name: 'NTI', url: rss('https://www.nti.org/rss/'), type: 'research' },
-  { name: 'RUSI', url: rss('https://rusi.org/rss.xml'), type: 'research' },
-  { name: 'Wilson Center', url: rss('https://www.wilsoncenter.org/rss.xml'), type: 'research' },
-  { name: 'GMF', url: rss('https://www.gmfus.org/feed'), type: 'research' },
+  // RUSI removed: feed exists at /rss/whats-new.xml but Cloudflare bot-fight
+  // 403s the server-side rss-proxy (works from a browser, not datacenter egress).
+  { name: 'GMF', url: rss('https://www.gmfus.org/rss.xml'), type: 'research' },
   { name: 'Stimson Center', url: rss('https://www.stimson.org/feed/'), type: 'research' },
-  { name: 'CNAS', url: rss('https://www.cnas.org/rss'), type: 'research' },
   { name: 'Lowy Institute', url: rss('https://www.lowyinstitute.org/feed'), type: 'research' },
 
   // Nuclear & Arms Control (Tier 2)
-  { name: 'Arms Control Assn', url: rss('https://www.armscontrol.org/rss/all'), type: 'nuclear' },
+  { name: 'Arms Control Assn', url: rss('https://www.armscontrol.org/rss.xml'), type: 'nuclear' },
   { name: 'Bulletin of Atomic Scientists', url: rss('https://thebulletin.org/feed/'), type: 'nuclear' },
 
   // OSINT & Monitoring (Tier 2)
