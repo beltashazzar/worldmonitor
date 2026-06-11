@@ -1527,6 +1527,41 @@ export class App {
     this.renderPanelToggles();
     this.updateTime();
     this.timeIntervalId = setInterval(() => this.updateTime(), 1000);
+
+    // Surface failed data loads as a no-entry indicator on the owning panel.
+    dataFreshness.subscribe(() => this.updatePanelErrorIndicators());
+    this.updatePanelErrorIndicators();
+  }
+
+  /**
+   * Toggle each panel's no-entry error indicator based on its data sources'
+   * freshness. A panel is flagged only when at least one of its sources is in
+   * an error state AND none currently hold live data — so a multi-source panel
+   * (e.g. economic) stays clean as long as one feed works, and the flag clears
+   * automatically once the source recovers.
+   */
+  private updatePanelErrorIndicators(): void {
+    const byPanel = new Map<string, { errored: boolean; hasLive: boolean; lastError?: string }>();
+    for (const source of dataFreshness.getAllSources()) {
+      const panelId = dataFreshness.getPanelIdForSource(source.id);
+      if (!panelId || !this.panels[panelId]) continue;
+      const agg = byPanel.get(panelId) ?? { errored: false, hasLive: false };
+      // Use the raw lastUpdate/lastError fields, not `status`: status is masked
+      // to 'disabled' when a source's map layer is toggled off, which would hide
+      // a real load failure on a panel that's still visible. A source counts as
+      // broken only if it errored and has never delivered data.
+      const hasData = source.lastUpdate != null;
+      if (hasData) agg.hasLive = true;
+      if (source.lastError != null && !hasData) {
+        agg.errored = true;
+        agg.lastError = source.lastError || `${source.name} unavailable`;
+      }
+      byPanel.set(panelId, agg);
+    }
+    for (const [panelId, agg] of byPanel) {
+      const showError = agg.errored && !agg.hasLive;
+      this.panels[panelId]?.setErrorState(showError, showError ? agg.lastError : undefined);
+    }
   }
 
   /**

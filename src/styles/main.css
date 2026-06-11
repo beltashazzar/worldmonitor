@@ -623,6 +623,40 @@ body.animations-paused *::after {
   color: #ff6b6b;
 }
 
+/* No-entry indicator (red circle with a diagonal slash) shown in a panel's
+   header when its data source has failed to load. CSS-drawn for crisp,
+   theme-controlled color rather than relying on emoji rendering. */
+.panel-error-icon {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ff4d4d;
+  border-radius: 50%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  animation: panel-error-pulse 1.8s ease-in-out infinite;
+}
+
+.panel-error-icon::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: #ff4d4d;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+@keyframes panel-error-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-error-icon { animation: none; }
+}
+
 .panel-header-left {
   display: flex;
   align-items: center;

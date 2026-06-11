@@ -49,6 +49,7 @@ export class Panel {
   protected countEl: HTMLElement | null = null;
   protected statusBadgeEl: HTMLElement | null = null;
   protected newBadgeEl: HTMLElement | null = null;
+  protected errorIconEl: HTMLElement | null = null;
   protected panelId: string;
   private tooltipCloseHandler: (() => void) | null = null;
   private resizeHandle: HTMLElement | null = null;
@@ -70,6 +71,13 @@ export class Panel {
 
     const headerLeft = document.createElement('div');
     headerLeft.className = 'panel-header-left';
+
+    // No-entry indicator, hidden until setErrorState(true) — a data load failed.
+    this.errorIconEl = document.createElement('span');
+    this.errorIconEl.className = 'panel-error-icon';
+    this.errorIconEl.setAttribute('aria-label', 'Data unavailable');
+    this.errorIconEl.style.display = 'none';
+    headerLeft.appendChild(this.errorIconEl);
 
     const title = document.createElement('span');
     title.className = 'panel-title';
@@ -300,7 +308,10 @@ export class Panel {
 
   public setErrorState(hasError: boolean, tooltip?: string): void {
     this.header.classList.toggle('panel-header-error', hasError);
-    if (tooltip) {
+    if (this.errorIconEl) {
+      this.errorIconEl.style.display = hasError ? 'inline-block' : 'none';
+    }
+    if (hasError && tooltip) {
       this.header.title = tooltip;
     } else {
       this.header.removeAttribute('title');
