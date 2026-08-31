@@ -127,6 +127,14 @@ const VIEW_PRESETS: Record<DeckMapView, { longitude: number; latitude: number; z
 const MAP_INTERACTION_MODE: MapInteractionMode =
   import.meta.env.VITE_MAP_INTERACTION_MODE === 'flat' ? 'flat' : '3d';
 
+// Dark basemap. Was CARTO's dark_all raster tiles until CARTO began stamping
+// "API KEY REQUIRED" across anonymous tiles while still answering 200 — the map went
+// unreadable with nothing in any log or status check to show for it. OpenFreeMap serves
+// the same OSM-derived dark basemap as vector tiles with no key and no request quota, and
+// a style or source that fails there surfaces as a MapLibre 'error' event instead of as
+// pixels. Attribution rides on the style's own TileJSON; attributionControl is off below.
+const BASEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
+
 // Zoom thresholds for layer visibility and labels (matches old Map.ts)
 // Zoom-dependent layer visibility and labels
 const LAYER_ZOOM_THRESHOLDS: Partial<Record<keyof MapLayers, { minZoom: number; showLabels?: number }>> = {
@@ -290,6 +298,7 @@ export class DeckGLMap {
 
     this.maplibreMap?.on('load', () => {
       this.initDeck();
+      this.useEnglishBasemapLabels();
       this.loadCountryBoundaries();
       this.render();
     });
@@ -323,39 +332,7 @@ export class DeckGLMap {
 
     this.maplibreMap = new maplibregl.Map({
       container: 'deckgl-basemap',
-      style: {
-        version: 8,
-        name: 'Dark',
-        sources: {
-          'carto-dark': {
-            type: 'raster',
-            tiles: [
-              'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-              'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-              'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-            ],
-            tileSize: 256,
-            attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
-          },
-        },
-        layers: [
-          {
-            id: 'background',
-            type: 'background',
-            paint: {
-              'background-color': '#0a0f0c',
-            },
-          },
-          {
-            id: 'carto-dark-layer',
-            type: 'raster',
-            source: 'carto-dark',
-            minzoom: 0,
-            maxzoom: 22,
-          },
-        ],
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-      },
+      style: BASEMAP_STYLE_URL,
       center: [preset.longitude, preset.latitude],
       zoom: preset.zoom,
       attributionControl: false,
@@ -369,6 +346,36 @@ export class DeckGLMap {
           }
         : {}),
     });
+
+    // The basemap has no other failure channel — a bad style or a dead tile host just
+    // renders as an empty map — so say so out loud.
+    this.maplibreMap.on('error', (event) => {
+      console.error('[DeckGLMap] Basemap error:', event.error?.message ?? event);
+    });
+  }
+
+  /**
+   * OpenFreeMap labels each place in its local script — БЕЛАРУСЬ, ايران, ΕΛΛΑΣ. Every other
+   * panel on the dashboard reads in English and the previous CARTO basemap labelled in it,
+   * so prefer the tiles' name:en and fall back to the local name where there is none.
+   */
+  private useEnglishBasemapLabels(): void {
+    const map = this.maplibreMap;
+    if (!map) return;
+
+    try {
+      for (const layer of map.getStyle().layers ?? []) {
+        if (layer.type !== 'symbol') continue;
+        if (!map.getLayoutProperty(layer.id, 'text-field')) continue;
+        map.setLayoutProperty(layer.id, 'text-field', [
+          'coalesce',
+          ['get', 'name:en'],
+          ['get', 'name'],
+        ]);
+      }
+    } catch (err) {
+      console.warn('[DeckGLMap] Could not switch basemap labels to English:', err);
+    }
   }
 
   private initDeck(): void {

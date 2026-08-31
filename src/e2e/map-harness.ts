@@ -921,13 +921,17 @@ const ensureDeterministicStyles = (): void => {
   document.head.appendChild(style);
 };
 
-const hideRasterBasemap = (): void => {
+const hideBasemap = (): void => {
   const maplibreMap = internals.maplibreMap;
   if (!maplibreMap) return;
 
   try {
-    if (maplibreMap.getLayer('carto-dark-layer')) {
-      maplibreMap.setPaintProperty('carto-dark-layer', 'raster-opacity', 0);
+    // The basemap is a vector style of many layers rather than one raster layer. deck.gl
+    // draws into its own canvas (interleaved: false), so hiding every style layer but the
+    // background leaves exactly the deck.gl output the visual scenarios compare against.
+    for (const layer of maplibreMap.getStyle().layers ?? []) {
+      if (layer.type === 'background') continue;
+      maplibreMap.setLayoutProperty(layer.id, 'visibility', 'none');
     }
   } catch {
     // No-op for harness stability.
@@ -937,7 +941,7 @@ const hideRasterBasemap = (): void => {
 const enableDeterministicVisualMode = (): void => {
   document.body.classList.add(DETERMINISTIC_BODY_CLASS);
   ensureDeterministicStyles();
-  hideRasterBasemap();
+  hideBasemap();
   makeNewsLocationsNonRecent();
   map.render();
   deterministicVisualModeEnabled = true;
