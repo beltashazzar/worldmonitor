@@ -164,7 +164,10 @@ const COLORS = {
   cableHighlight: [255, 100, 100, 200] as [number, number, number, number],
   earthquake: [255, 100, 50, 200] as [number, number, number, number],
   vesselMilitary: [255, 100, 100, 220] as [number, number, number, number],
-  flightMilitary: [255, 50, 50, 220] as [number, number, number, number],
+  // Olive drab rather than red: these are routine military movements, and red is the
+  // alert vocabulary the hotspot, outage and X Pulse layers speak. Keeps them legible
+  // against the near-black basemap without reading as an incident.
+  flightMilitary: [107, 142, 35, 230] as [number, number, number, number],
   protest: [255, 150, 0, 200] as [number, number, number, number],
   outage: [255, 50, 50, 180] as [number, number, number, number],
   weather: [100, 150, 255, 180] as [number, number, number, number],

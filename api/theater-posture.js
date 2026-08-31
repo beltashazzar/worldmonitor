@@ -17,9 +17,11 @@ const CACHE_KEY = 'theater-posture:v4';
 const STALE_CACHE_KEY = 'theater-posture:stale:v4';
 const BACKUP_CACHE_KEY = 'theater-posture:backup:v4';
 
-// Server-side rate limiter: at most one OpenSky fetch per MIN_FETCH_INTERVAL_MS
-const MIN_FETCH_INTERVAL_MS = 3_600_000; // 60 minutes — anonymous OpenSky allows ~25 req/day
-let lastOpenSkyFetchTime = 0;
+// Server-side rate limiter: at most one upstream fetch per MIN_FETCH_INTERVAL_MS. This was
+// 60 minutes because anonymous OpenSky allows ~25 requests/day. The open ADS-B feeds now
+// lead and have no such quota, so this tracks the client's own 5-minute poll instead.
+const MIN_FETCH_INTERVAL_MS = 300_000; // 5 minutes
+let lastUpstreamFetchTime = 0;
 let inflightFetch = null; // coalesce concurrent requests into one fetch
 
 // Theater definitions (matches client-side POSTURE_THEATERS)
@@ -222,6 +224,78 @@ function isMilitaryCallsign(callsign) {
   }
 
   return false;
+}
+
+// Open ADS-B military feeds. These lead because they need no key and impose no quota,
+// where OpenSky 429s every anonymous request we make — its cache was the only thing
+// keeping this panel alive, so a container rebuild emptied the map. Field names and units
+// differ from OpenSky's state vectors: alt_baro is FEET and gs is KNOTS, which is what the
+// client renders (FL nnn / nnn kts). OpenSky reports metres and m/s and this handler passed
+// them straight through, so those readings were ~3.3x low.
+const ADSB_MIL_ENDPOINTS = [
+  'https://api.adsb.lol/v2/mil',
+  'https://opendata.adsb.fi/api/v2/mil',
+];
+
+async function fetchMilitaryFlightsFromAdsb() {
+  let lastError = null;
+
+  for (const url of ADSB_MIL_ENDPOINTS) {
+    const host = new URL(url).host;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'WorldMonitor/1.0 (+https://worldmonitor.app)',
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) throw new Error(`ADS-B ${host} error: ${response.status}`);
+
+      const data = await response.json();
+      const aircraft = Array.isArray(data.ac) ? data.ac : [];
+      const flights = [];
+
+      for (const a of aircraft) {
+        if (typeof a.lat !== 'number' || typeof a.lon !== 'number') continue;
+        // alt_baro is the string "ground" for anything that has not taken off.
+        if (a.alt_baro === 'ground') continue;
+
+        const callsign = (a.flight || '').trim();
+        flights.push({
+          id: a.hex,
+          callsign,
+          lat: a.lat,
+          lon: a.lon,
+          altitude: typeof a.alt_baro === 'number' ? a.alt_baro : 0,
+          heading: a.track || 0,
+          speed: Math.round(a.gs || 0),
+          aircraftType: detectAircraftType(callsign),
+          // The feed is already filtered to military, so unlike the OpenSky path there is
+          // no callsign/hex heuristic to apply -- but keep the hex flag the client reads.
+          operator: a.ownOp || 'unknown',
+          militaryHex: isMilitaryHex(a.hex),
+        });
+      }
+
+      if (flights.length > 0) {
+        console.log(`[TheaterPosture] ${host}: ${flights.length} military aircraft`);
+        return flights;
+      }
+      lastError = new Error(`${host} returned no aircraft`);
+    } catch (err) {
+      lastError = err.name === 'AbortError' ? new Error(`ADS-B ${host} timeout`) : err;
+      console.warn('[TheaterPosture] ADS-B source failed:', lastError.message);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  throw lastError || new Error('No ADS-B source returned data');
 }
 
 // Fetch military flights from OpenSky
@@ -527,7 +601,7 @@ export default async function handler(req) {
     // Rate-limit guard: if we fetched recently, serve stale cache instead
     // of burning another OpenSky API call.
     const now = Date.now();
-    if (now - lastOpenSkyFetchTime < MIN_FETCH_INTERVAL_MS) {
+    if (now - lastUpstreamFetchTime < MIN_FETCH_INTERVAL_MS) {
       const stale = await getCachedJson(STALE_CACHE_KEY);
       if (stale) {
         console.log('[TheaterPosture] Rate-limited — serving stale cache');
@@ -563,27 +637,35 @@ export default async function handler(req) {
     async function doFetch() {
       console.log('[TheaterPosture] Fetching fresh data...');
       let flights;
-      let source = 'opensky';
+      let source = 'adsb';
 
       try {
-        flights = await fetchMilitaryFlights();
-      } catch (openskyError) {
-        console.warn('[TheaterPosture] OpenSky failed:', openskyError.message);
-        console.log('[TheaterPosture] Trying Wingbits fallback...');
+        flights = await fetchMilitaryFlightsFromAdsb();
+      } catch (adsbError) {
+        console.warn('[TheaterPosture] ADS-B feeds failed:', adsbError.message);
+        console.log('[TheaterPosture] Trying OpenSky...');
 
-        flights = await fetchMilitaryFlightsFromWingbits();
-        if (flights && flights.length > 0) {
-          source = 'wingbits';
-          console.log('[TheaterPosture] Wingbits fallback succeeded:', flights.length, 'flights');
-        } else {
-          throw openskyError;
+        try {
+          flights = await fetchMilitaryFlights();
+          source = 'opensky';
+        } catch (openskyError) {
+          console.warn('[TheaterPosture] OpenSky failed:', openskyError.message);
+          console.log('[TheaterPosture] Trying Wingbits fallback...');
+
+          flights = await fetchMilitaryFlightsFromWingbits();
+          if (flights && flights.length > 0) {
+            source = 'wingbits';
+            console.log('[TheaterPosture] Wingbits fallback succeeded:', flights.length, 'flights');
+          } else {
+            throw adsbError;
+          }
         }
       }
 
       return { flights, source };
     }
 
-    lastOpenSkyFetchTime = Date.now(); // update BEFORE fetch to prevent retry storms on 429
+    lastUpstreamFetchTime = Date.now(); // update BEFORE fetch to prevent retry storms on 429
     inflightFetch = doFetch().then(async ({ flights, source }) => {
       const postures = calculatePostures(flights);
       const result = {
