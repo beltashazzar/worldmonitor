@@ -78,7 +78,7 @@ export default async function handler(request) {
       });
     }
     overlay.addEventListener('click',function(){
-      if(player&&player.playVideo){player.playVideo();player.unMute();hideOverlay()}
+      if(player&&player.playVideo){player.playVideo();player.unMute();if(player.getVolume&&player.getVolume()===0)player.setVolume(60);hideOverlay()}
     });
     setTimeout(function(){if(!started)overlay.classList.remove('hidden')},3000);
     window.addEventListener('message',function(e){
@@ -88,7 +88,7 @@ export default async function handler(request) {
         case'play':player.playVideo();break;
         case'pause':player.pauseVideo();break;
         case'mute':player.mute();break;
-        case'unmute':player.unMute();break;
+        case'unmute':player.unMute();if(player.getVolume&&player.getVolume()===0)player.setVolume(60);break;
         case'loadVideo':if(m.videoId)player.loadVideoById(m.videoId);break;
       }
     });

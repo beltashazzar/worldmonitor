@@ -10,6 +10,8 @@ type YouTubePlayer = {
   pauseVideo(): void;
   loadVideoById(videoId: string): void;
   cueVideoById(videoId: string): void;
+  getVolume?(): number;
+  setVolume?(volume: number): void;
   getIframe?(): HTMLIFrameElement;
   destroy(): void;
 };
@@ -290,6 +292,23 @@ export class LiveNewsPanel extends Panel {
     this.isMuted = !this.isMuted;
     this.updateMuteIcon();
     this.syncPlayerState();
+  }
+
+  /**
+   * unMute() only lifts the mute flag — it restores whatever volume the player already
+   * had. YouTube persists that per viewer, so anyone who once dragged an embed's volume
+   * to zero gets a player that reports muted:false at volume 0: the button says sound is
+   * on, the OS mixer says sound is on, and nothing is audible. Lift it just off the floor
+   * in that case, and leave any volume the viewer actually chose alone.
+   */
+  private ensureAudibleVolume(): void {
+    const player = this.player;
+    if (!player?.getVolume || !player.setVolume) return;
+    try {
+      if (player.getVolume() === 0) player.setVolume(60);
+    } catch {
+      // Player not ready enough to report volume; nothing to correct.
+    }
   }
 
   private createChannelSwitcher(): void {
@@ -637,6 +656,7 @@ export class LiveNewsPanel extends Panel {
       this.player.mute();
     } else {
       this.player.unMute();
+      this.ensureAudibleVolume();
     }
 
     if (this.isPlaying) {
@@ -650,7 +670,11 @@ export class LiveNewsPanel extends Panel {
             this.player.playVideo();
             // Restore mute state after play starts
             if (!this.isMuted) {
-              setTimeout(() => { if (this.player) this.player.unMute(); }, 500);
+              setTimeout(() => {
+                if (!this.player) return;
+                this.player.unMute();
+                this.ensureAudibleVolume();
+              }, 500);
             }
           }
         }, 800);
