@@ -41,7 +41,7 @@ declare global {
 interface LiveChannel {
   id: string;
   name: string;
-  handle: string; // YouTube channel handle (e.g., @bloomberg)
+  handle: string; // YouTube channel handle (e.g., @SkyNews)
   fallbackVideoId?: string; // Fallback if no live stream detected
   videoId?: string; // Dynamically fetched live video ID
   isLive?: boolean;
@@ -50,9 +50,14 @@ interface LiveChannel {
 
 const SITE_VARIANT = import.meta.env.VITE_VARIANT || 'full';
 
+// Bloomberg used to lead both lists, and so was the default channel, but it no longer
+// permits embedding — YouTube answers its stream with "This live stream recording is not
+// available" and the panel opens on a dead player. Do not put it back without checking that
+// an embed of @Bloomberg actually plays. The first entry here IS the default: activeChannel
+// is initialised to LIVE_CHANNELS[0] and nothing persists a user's choice.
+
 // Full variant: World news channels (24/7 live streams)
 const FULL_LIVE_CHANNELS: LiveChannel[] = [
-  { id: 'bloomberg', name: 'Bloomberg', handle: '@Bloomberg', fallbackVideoId: 'iEpJwprxDdk' },
   { id: 'sky', name: 'SkyNews', handle: '@SkyNews', fallbackVideoId: 'YDvsBbKfLPA' },
   { id: 'euronews', name: 'Euronews', handle: '@euabortnews', fallbackVideoId: 'pykpO5kQJ98' },
   { id: 'dw', name: 'DW', handle: '@DWNews', fallbackVideoId: 'LuKwFajn37U' },
@@ -64,7 +69,6 @@ const FULL_LIVE_CHANNELS: LiveChannel[] = [
 
 // Tech variant: Tech & business channels
 const TECH_LIVE_CHANNELS: LiveChannel[] = [
-  { id: 'bloomberg', name: 'Bloomberg', handle: '@Bloomberg', fallbackVideoId: 'iEpJwprxDdk' },
   { id: 'yahoo', name: 'Yahoo Finance', handle: '@YahooFinance', fallbackVideoId: 'KQp-e_XQnDE' },
   { id: 'cnbc', name: 'CNBC', handle: '@CNBC', fallbackVideoId: '9NyxcX3rhQs' },
   { id: 'nasa', name: 'NASA TV', handle: '@NASA', fallbackVideoId: 'fO9e9jnhYK8', useFallbackOnly: true },
