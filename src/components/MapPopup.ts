@@ -1,5 +1,6 @@
 import type { ConflictZone, Hotspot, Earthquake, NewsItem, MilitaryBase, StrategicWaterway, APTGroup, NuclearFacility, EconomicCenter, GammaIrradiator, Pipeline, UnderseaCable, CableAdvisory, RepairShip, InternetOutage, AIDataCenter, AisDisruptionEvent, SocialUnrestEvent, AirportDelayAlert, MilitaryFlight, MilitaryVessel, MilitaryFlightCluster, MilitaryVesselCluster, NaturalEvent, Port, Spaceport, CriticalMineralProject } from '@/types';
 import type { WeatherAlert } from '@/services/weather';
+import type { XSentimentEvent } from '@/services/x-sentiment';
 import { UNDERSEA_CABLES } from '@/config';
 import type { StartupHub, Accelerator, TechHQ, CloudRegion } from '@/config/tech-geo';
 import type { TechHubActivity } from '@/services/tech-activity';
@@ -10,7 +11,7 @@ import { fetchHotspotContext, formatArticleDate, extractDomain, type GdeltArticl
 import { getNaturalEventIcon } from '@/services/eonet';
 import { getHotspotEscalation, getEscalationChange24h } from '@/services/hotspot-escalation';
 
-export type PopupType = 'conflict' | 'hotspot' | 'earthquake' | 'weather' | 'base' | 'waterway' | 'apt' | 'nuclear' | 'economic' | 'irradiator' | 'pipeline' | 'cable' | 'cable-advisory' | 'repair-ship' | 'outage' | 'datacenter' | 'datacenterCluster' | 'ais' | 'protest' | 'protestCluster' | 'flight' | 'militaryFlight' | 'militaryVessel' | 'militaryFlightCluster' | 'militaryVesselCluster' | 'natEvent' | 'port' | 'spaceport' | 'mineral' | 'startupHub' | 'cloudRegion' | 'techHQ' | 'accelerator' | 'techEvent' | 'techHQCluster' | 'techEventCluster' | 'techActivity' | 'geoActivity';
+export type PopupType = 'conflict' | 'hotspot' | 'earthquake' | 'weather' | 'base' | 'waterway' | 'apt' | 'nuclear' | 'economic' | 'irradiator' | 'pipeline' | 'cable' | 'cable-advisory' | 'repair-ship' | 'outage' | 'datacenter' | 'datacenterCluster' | 'ais' | 'protest' | 'protestCluster' | 'flight' | 'militaryFlight' | 'militaryVessel' | 'militaryFlightCluster' | 'militaryVesselCluster' | 'natEvent' | 'port' | 'spaceport' | 'mineral' | 'startupHub' | 'cloudRegion' | 'techHQ' | 'accelerator' | 'techEvent' | 'techHQCluster' | 'techEventCluster' | 'techActivity' | 'geoActivity' | 'xSentiment';
 
 interface TechEventPopupData {
   id: string;
@@ -70,7 +71,7 @@ interface DatacenterClusterData {
 
 interface PopupData {
   type: PopupType;
-  data: ConflictZone | Hotspot | Earthquake | WeatherAlert | MilitaryBase | StrategicWaterway | APTGroup | NuclearFacility | EconomicCenter | GammaIrradiator | Pipeline | UnderseaCable | CableAdvisory | RepairShip | InternetOutage | AIDataCenter | AisDisruptionEvent | SocialUnrestEvent | AirportDelayAlert | MilitaryFlight | MilitaryVessel | MilitaryFlightCluster | MilitaryVesselCluster | NaturalEvent | Port | Spaceport | CriticalMineralProject | StartupHub | CloudRegion | TechHQ | Accelerator | TechEventPopupData | TechHQClusterData | TechEventClusterData | ProtestClusterData | DatacenterClusterData | TechHubActivity | GeoHubActivity;
+  data: ConflictZone | Hotspot | Earthquake | WeatherAlert | MilitaryBase | StrategicWaterway | APTGroup | NuclearFacility | EconomicCenter | GammaIrradiator | Pipeline | UnderseaCable | CableAdvisory | RepairShip | InternetOutage | AIDataCenter | AisDisruptionEvent | SocialUnrestEvent | AirportDelayAlert | MilitaryFlight | MilitaryVessel | MilitaryFlightCluster | MilitaryVesselCluster | NaturalEvent | Port | Spaceport | CriticalMineralProject | StartupHub | CloudRegion | TechHQ | Accelerator | TechEventPopupData | TechHQClusterData | TechEventClusterData | ProtestClusterData | DatacenterClusterData | TechHubActivity | GeoHubActivity | XSentimentEvent;
   relatedNews?: NewsItem[];
   x: number;
   y: number;
@@ -265,6 +266,8 @@ export class MapPopup {
         return this.renderTechHQClusterPopup(data.data as TechHQClusterData);
       case 'techEventCluster':
         return this.renderTechEventClusterPopup(data.data as TechEventClusterData);
+      case 'xSentiment':
+        return this.renderXSentimentPopup(data.data as XSentimentEvent);
       default:
         return '';
     }
@@ -572,6 +575,44 @@ export class MapPopup {
           </div>
         </div>
         <a href="${sanitizeUrl(earthquake.url)}" target="_blank" class="popup-link">View on USGS →</a>
+      </div>
+    `;
+  }
+
+  private renderXSentimentPopup(event: XSentimentEvent): string {
+    const badgeClass = event.severity === 'critical' || event.severity === 'high'
+      ? 'high'
+      : event.severity === 'medium' ? 'medium' : 'low';
+    const cachedAt = event.cachedAt ? new Date(event.cachedAt) : null;
+    const seen = cachedAt && !Number.isNaN(cachedAt.getTime()) ? this.getTimeAgo(cachedAt) : 'Unknown';
+
+    return `
+      <div class="popup-header xsentiment">
+        <span class="popup-title">&#120143; X PULSE</span>
+        <span class="popup-badge ${badgeClass}">${escapeHtml(event.severity?.toUpperCase() || 'UNKNOWN')}</span>
+        <button class="popup-close">×</button>
+      </div>
+      <div class="popup-body">
+        <p class="popup-location">${escapeHtml(event.headline)}</p>
+        <p class="popup-description">${escapeHtml(event.summary)}</p>
+        <div class="popup-stats">
+          <div class="popup-stat">
+            <span class="stat-label">Location</span>
+            <span class="stat-value">${escapeHtml(event.location)}</span>
+          </div>
+          <div class="popup-stat">
+            <span class="stat-label">Category</span>
+            <span class="stat-value">${escapeHtml(event.category || 'Unknown')}</span>
+          </div>
+          <div class="popup-stat">
+            <span class="stat-label">Coordinates</span>
+            <span class="stat-value">${event.lat.toFixed(2)}°, ${event.lon.toFixed(2)}°</span>
+          </div>
+          <div class="popup-stat">
+            <span class="stat-label">Sampled</span>
+            <span class="stat-value">${escapeHtml(seen)}</span>
+          </div>
+        </div>
       </div>
     `;
   }

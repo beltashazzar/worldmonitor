@@ -2011,6 +2011,8 @@ export class DeckGLMap {
         return { html: `<div class="deckgl-tooltip"><strong>${text(obj.name)}</strong><br/>${text(obj.subtext)}</div>` };
       case 'earthquakes-layer':
         return { html: `<div class="deckgl-tooltip"><strong>M${(obj.magnitude || 0).toFixed(1)} Earthquake</strong><br/>${text(obj.place)}</div>` };
+      case 'x-sentiment-layer':
+        return { html: `<div class="deckgl-tooltip"><strong>&#120143; ${text(obj.headline)}</strong><br/>${text(obj.location)}</div>` };
       case 'military-vessels-layer':
         return { html: `<div class="deckgl-tooltip"><strong>${text(obj.name)}</strong><br/>${text(obj.operatorCountry)}</div>` };
       case 'military-flights-layer':
@@ -2273,6 +2275,7 @@ export class DeckGLMap {
       'ais-disruptions-layer': 'ais',
       'cable-advisories-layer': 'cable-advisory',
       'repair-ships-layer': 'repair-ship',
+      'x-sentiment-layer': 'xSentiment',
     };
 
     const popupType = layerToPopupType[layerId];

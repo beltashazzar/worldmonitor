@@ -94,9 +94,40 @@ export class Panel {
       tooltip.className = 'panel-info-tooltip';
       tooltip.innerHTML = options.infoTooltip;
 
+      // The tooltip lives inside .panel, which is overflow:hidden, so an absolutely
+      // positioned box gets clipped at the panel edge — six panels were losing between
+      // 35px and 282px of their methodology text that way. Switching to fixed
+      // positioning on open escapes every ancestor's clip; the coordinates then have to
+      // be computed here, and --arrow-x keeps the pointer aimed at the button after the
+      // box is clamped to the viewport.
+      const placeTooltip = (): void => {
+        const btn = infoBtn.getBoundingClientRect();
+        tooltip.style.position = 'fixed';
+        tooltip.style.transform = 'none';
+        tooltip.style.overflowY = 'auto';
+
+        const width = tooltip.offsetWidth;
+        const anchorX = btn.left + btn.width / 2;
+        const left = Math.max(8, Math.min(anchorX - width / 2, window.innerWidth - width - 8));
+        tooltip.style.left = `${left}px`;
+        tooltip.style.setProperty('--arrow-x', `${anchorX - left}px`);
+
+        const spaceBelow = window.innerHeight - btn.bottom - 16;
+        const spaceAbove = btn.top - 16;
+        if (spaceBelow >= tooltip.offsetHeight || spaceBelow >= spaceAbove) {
+          tooltip.style.top = `${btn.bottom + 8}px`;
+          tooltip.style.bottom = 'auto';
+          tooltip.style.maxHeight = `${spaceBelow}px`;
+        } else {
+          tooltip.style.bottom = `${window.innerHeight - btn.top + 8}px`;
+          tooltip.style.top = 'auto';
+          tooltip.style.maxHeight = `${spaceAbove}px`;
+        }
+      };
+
       infoBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        tooltip.classList.toggle('visible');
+        if (tooltip.classList.toggle('visible')) placeTooltip();
       });
 
       this.tooltipCloseHandler = () => tooltip.classList.remove('visible');

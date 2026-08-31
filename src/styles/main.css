@@ -837,7 +837,7 @@ body.animations-paused *::after {
   content: '';
   position: absolute;
   top: -6px;
-  left: 50%;
+  left: var(--arrow-x, 50%);
   transform: translateX(-50%);
   border: 6px solid transparent;
   border-bottom-color: #444;
@@ -847,7 +847,7 @@ body.animations-paused *::after {
   content: '';
   position: absolute;
   top: -4px;
-  left: 50%;
+  left: var(--arrow-x, 50%);
   transform: translateX(-50%);
   border: 5px solid transparent;
   border-bottom-color: #1a1a1a;
@@ -1561,6 +1561,17 @@ body.animations-paused *::after {
   overflow: hidden;
   box-shadow: 0 0 30px rgba(0, 170, 255, 0.3);
   animation: signal-pulse 0.5s ease-out;
+  /* Column flex so the header and footer always fit inside max-height and the
+     scrollable content absorbs the shortfall. Without it the three fixed-height
+     children total ~496px, so on a viewport under ~620px tall the modal's own
+     overflow:hidden clipped the footer — taking the Dismiss button with it. */
+  display: flex;
+  flex-direction: column;
+}
+
+.signal-modal-header,
+.signal-modal-footer {
+  flex: 0 0 auto;
 }
 
 @keyframes signal-pulse {
@@ -1597,6 +1608,10 @@ body.animations-paused *::after {
   padding: 16px;
   max-height: 400px;
   overflow-y: auto;
+  /* min-height:0 lets this shrink below its content in the flex column; without it
+     a flex item refuses to go under min-content and pushes the footer out again. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .signal-item {
@@ -3898,6 +3913,10 @@ a.prediction-link:hover {
   background: rgba(0, 209, 255, 0.12);
 }
 
+.popup-header.xsentiment {
+  background: rgba(239, 68, 68, 0.1);
+}
+
 .popup-title {
   font-size: 16px;
   font-weight: bold;
@@ -3916,6 +3935,10 @@ a.prediction-link:hover {
 
 .popup-header.ais .popup-title {
   color: #00d1ff;
+}
+
+.popup-header.xsentiment .popup-title {
+  color: #ef4444;
 }
 
 .popup-title.magnitude {
