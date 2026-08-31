@@ -9678,6 +9678,40 @@ a.prediction-link:hover {
   color: var(--text);
 }
 
+/* All vs Theatre scope for military aircraft. Sits indented under the Military Activity
+   row so it reads as belonging to it rather than as a layer of its own. */
+.deckgl-layer-toggles .layer-scope {
+  display: flex;
+  gap: 4px;
+  margin: 2px 0 4px 26px;
+}
+
+.deckgl-layer-toggles .scope-btn {
+  flex: 1;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  background: rgba(30, 35, 32, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.deckgl-layer-toggles .scope-btn:hover {
+  color: var(--text);
+}
+
+.deckgl-layer-toggles .scope-btn.active {
+  color: #0a0f0c;
+  background: rgb(107, 142, 35);
+  border-color: rgb(107, 142, 35);
+  font-weight: bold;
+}
+
 .deckgl-layer-toggles .layer-toggle:hover {
   background: rgba(50, 55, 52, 0.9);
 }

@@ -669,7 +669,7 @@ export function surgeAlertToSignal(surge: SurgeAlert): {
 
 // ============ THEATER POSTURE AGGREGATION ============
 
-interface PostureTheater {
+export interface PostureTheater {
   id: string;
   name: string;
   shortName: string;
@@ -681,7 +681,7 @@ interface PostureTheater {
   strikeIndicators: { minTankers: number; minAwacs: number; minFighters: number };
 }
 
-const POSTURE_THEATERS: PostureTheater[] = [
+export const POSTURE_THEATERS: PostureTheater[] = [
   {
     id: 'iran-theater',
     name: 'Iran Theater',

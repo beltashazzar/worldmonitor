@@ -73,6 +73,7 @@ import {
   setCIIGetter,
   setGeoAlertGetter,
 } from '@/services/hotspot-escalation';
+import { POSTURE_THEATERS } from '@/services/military-surge';
 import { getCountryScore } from '@/services/country-instability';
 import { getAlertsNearLocation } from '@/services/geo-convergence';
 import { getCountriesGeoJson, getCountryAtCoordinates } from '@/services/country-geometry';
@@ -163,7 +164,9 @@ const COLORS = {
   cable: [0, 200, 255, 150] as [number, number, number, number],
   cableHighlight: [255, 100, 100, 200] as [number, number, number, number],
   earthquake: [255, 100, 50, 200] as [number, number, number, number],
-  vesselMilitary: [255, 100, 100, 220] as [number, number, number, number],
+  // Light blue for hulls — distinct from the base marker's saturated blue [0,150,255]
+  // and, like the olive aircraft, deliberately outside the red alert vocabulary.
+  vesselMilitary: [135, 206, 250, 230] as [number, number, number, number],
   // Olive drab rather than red: these are routine military movements, and red is the
   // alert vocabulary the hotspot, outage and X Pulse layers speak. Keeps them legible
   // against the near-black basemap without reading as an incident.
@@ -183,6 +186,16 @@ const COLORS = {
   xpulseMedium: [234, 179, 8, 200] as [number, number, number, number],
 };
 
+export type MilitaryFlightScope = 'all' | 'theater';
+
+// Reuses the same theater boxes the posture panel scores against, so "Theatre" on the map
+// and the Strategic Posture panel are talking about exactly the same airspace.
+function isInsideAnyTheater(lat: number, lon: number): boolean {
+  return POSTURE_THEATERS.some((t) =>
+    lat <= t.bounds.north && lat >= t.bounds.south &&
+    lon <= t.bounds.east && lon >= t.bounds.west);
+}
+
 // SVG icons as data URLs for different marker shapes
 const MARKER_ICONS = {
   // Square - for datacenters
@@ -197,6 +210,17 @@ const MARKER_ICONS = {
   circle: 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="white"/></svg>`),
   // Star - for special markers
   star: 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><polygon points="16,2 20,12 30,12 22,19 25,30 16,23 7,30 10,19 2,12 12,12" fill="white"/></svg>`),
+  // Airplane - for military aircraft, nose-up so getAngle points it along track.
+  // A cross was trialled on the theory that the silhouette was too fine at this size; it
+  // was not. The blob that prompted it turned out to be several aircraft stacked on one
+  // spot, which blobs whatever icon you use — the cross measured LARGER there, not
+  // cleaner. Isolated, this reads as an aircraft down to 13px. Bold strokes only: wings
+  // and tail thinner than ~4 units of this 32-unit box go sub-pixel once downscaled.
+  airplane: 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 1l4 11 11 6v6l-11-4v6l5 4v3l-9-3-9 3v-3l5-4v-6l-11 4v-6l11-6z" fill="white"/></svg>`),
+  // House - for military vessels. Bow-pointed box, which is the convention AIS displays
+  // use for a vessel, and like the cross it is a solid primitive that holds its shape at
+  // small sizes and indicates direction of travel when rotated.
+  house: 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 2l11 10v17H5V12z" fill="white"/></svg>`),
 };
 
 export class DeckGLMap {
@@ -219,6 +243,7 @@ export class DeckGLMap {
   private repairShips: RepairShip[] = [];
   private protests: SocialUnrestEvent[] = [];
   private militaryFlights: MilitaryFlight[] = [];
+  private militaryFlightScope: MilitaryFlightScope = 'all';
   private militaryFlightClusters: MilitaryFlightCluster[] = [];
   private militaryVessels: MilitaryVessel[] = [];
   private militaryVesselClusters: MilitaryVesselCluster[] = [];
@@ -1452,15 +1477,18 @@ export class DeckGLMap {
     });
   }
 
-  private createMilitaryVesselsLayer(): ScatterplotLayer {
-    return new ScatterplotLayer({
+  private createMilitaryVesselsLayer(): IconLayer {
+    return new IconLayer({
       id: 'military-vessels-layer',
       data: this.militaryVessels,
       getPosition: (d) => [d.lon, d.lat],
-      getRadius: 6000,
-      getFillColor: COLORS.vesselMilitary,
-      radiusMinPixels: 4,
-      radiusMaxPixels: 10,
+      getIcon: () => 'house',
+      iconAtlas: MARKER_ICONS.house,
+      iconMapping: { house: { x: 0, y: 0, width: 32, height: 32, mask: true } },
+      getSize: 16,
+      // Bow-up icon, deck.gl rotates counter-clockwise: negate the compass course.
+      getAngle: (d) => -(d.course ?? d.heading ?? 0),
+      getColor: COLORS.vesselMilitary,
       pickable: true,
     });
   }
@@ -1484,17 +1512,38 @@ export class DeckGLMap {
     });
   }
 
-  private createMilitaryFlightsLayer(): ScatterplotLayer {
-    return new ScatterplotLayer({
+  private createMilitaryFlightsLayer(): IconLayer {
+    return new IconLayer({
       id: 'military-flights-layer',
-      data: this.militaryFlights,
+      data: this.getScopedMilitaryFlights(),
       getPosition: (d) => [d.lon, d.lat],
-      getRadius: 8000,
-      getFillColor: COLORS.flightMilitary,
-      radiusMinPixels: 4,
-      radiusMaxPixels: 12,
+      getIcon: () => 'airplane',
+      iconAtlas: MARKER_ICONS.airplane,
+      iconMapping: { airplane: { x: 0, y: 0, width: 32, height: 32, mask: true } },
+      getSize: 18,
+      // The icon is drawn nose-up and deck.gl rotates counter-clockwise, so a clockwise
+      // compass heading becomes its negation.
+      getAngle: (d) => -(d.heading || 0),
+      getColor: COLORS.flightMilitary,
       pickable: true,
     });
+  }
+
+  /**
+   * Military aircraft filtered to the current scope. "All" is every military aircraft the
+   * ADS-B feeds report; "Theatre" keeps only those inside one of the posture theaters, which
+   * is a far smaller set — most military traffic at any hour is transport over CONUS and
+   * western Europe rather than anything inside the Iran or Taiwan boxes.
+   */
+  private getScopedMilitaryFlights(): MilitaryFlight[] {
+    if (this.militaryFlightScope === 'all') return this.militaryFlights;
+    return this.militaryFlights.filter((f) => isInsideAnyTheater(f.lat, f.lon));
+  }
+
+  public setMilitaryFlightScope(scope: MilitaryFlightScope): void {
+    if (this.militaryFlightScope === scope) return;
+    this.militaryFlightScope = scope;
+    this.render();
   }
 
   private createMilitaryFlightClustersLayer(): ScatterplotLayer {
@@ -2449,6 +2498,11 @@ export class DeckGLMap {
             <span class="toggle-icon">${icon}</span>
             <span class="toggle-label">${label}</span>
           </label>
+          ${key === 'military' ? `
+          <div class="layer-scope" role="group" aria-label="Military aircraft scope">
+            <button class="scope-btn ${this.militaryFlightScope === 'all' ? 'active' : ''}" data-scope="all">All</button>
+            <button class="scope-btn ${this.militaryFlightScope === 'theater' ? 'active' : ''}" data-scope="theater">Theatre</button>
+          </div>` : ''}
         `).join('')}
       </div>
     `;
@@ -2464,6 +2518,20 @@ export class DeckGLMap {
           this.render();
           this.onLayerChange?.(layer, (input as HTMLInputElement).checked);
         }
+      });
+    });
+
+    // Military aircraft scope: All (everything the ADS-B feeds report) vs Theatre (only
+    // aircraft inside a posture theater). Stops propagation so clicking it does not toggle
+    // the Military Activity checkbox it sits under.
+    toggles.querySelectorAll('.scope-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const scope = (btn as HTMLElement).dataset.scope as MilitaryFlightScope;
+        if (!scope) return;
+        toggles.querySelectorAll('.scope-btn').forEach(b => b.classList.toggle('active', b === btn));
+        this.setMilitaryFlightScope(scope);
       });
     });
 
