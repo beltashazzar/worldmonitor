@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Keeps the old icon's idea — a world with a pulse across it — but as two
+       solid shapes rather than a fine lat/lon grid, which smeared into a blur at
+       tab size. Colours are main.css: the 0a0f0a ground and the 44ff88 green the
+       app already uses for a live signal.
+
+       An earlier pass added a meridian ellipse as well. It collided with the
+       trace at the disc's centre, exactly where the ellipse is widest, and the
+       two dark shapes fused into a notch. Three elements was one too many. -->
+  <rect width="512" height="512" rx="96" fill="#0a0f0a"/>
+
+  <circle cx="256" cy="256" r="164" fill="#44ff88"/>
+
+  <polyline points="106,256 176,256 204,256 224,180 252,338 278,232 302,256 406,256"
+            fill="none" stroke="#0a0f0a" stroke-width="34"
+            stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
