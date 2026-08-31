@@ -35,6 +35,7 @@ import type {
   MapTechHQCluster,
   MapTechEventCluster,
   MapDatacenterCluster,
+  MapNewsLocation,
 } from '@/types';
 import { ArcLayer } from '@deck.gl/layers';
 import { HeatmapLayer } from '@deck.gl/aggregation-layers';
@@ -223,7 +224,7 @@ export class DeckGLMap {
   private techEvents: TechEventMarker[] = [];
   private flightDelays: AirportDelayAlert[] = [];
   private news: NewsItem[] = [];
-  private newsLocations: Array<{ lat: number; lon: number; title: string; threatLevel: string }> = [];
+  private newsLocations: MapNewsLocation[] = [];
   private newsLocationFirstSeen = new Map<string, number>();
   private ucdpEvents: UcdpGeoEvent[] = [];
   private displacementFlows: DisplacementFlow[] = [];
@@ -2276,6 +2277,11 @@ export class DeckGLMap {
       'cable-advisories-layer': 'cable-advisory',
       'repair-ships-layer': 'repair-ship',
       'x-sentiment-layer': 'xSentiment',
+      // news-locations-layer is pushed last, so it is the topmost pickable layer and
+      // deck.gl gives it every click that lands on one of its dots. Without an entry here
+      // those clicks died on the !popupType guard below — and took with them any base,
+      // hotspot or nuclear site that happened to sit under a news dot.
+      'news-locations-layer': 'news',
     };
 
     const popupType = layerToPopupType[layerId];
@@ -2948,7 +2954,7 @@ export class DeckGLMap {
     this.render();
   }
 
-  public setNewsLocations(data: Array<{ lat: number; lon: number; title: string; threatLevel: string }>): void {
+  public setNewsLocations(data: MapNewsLocation[]): void {
     const now = Date.now();
     for (const d of data) {
       if (!this.newsLocationFirstSeen.has(d.title)) {

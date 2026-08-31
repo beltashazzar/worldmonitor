@@ -3,7 +3,7 @@ import * as topojson from 'topojson-client';
 import { escapeHtml } from '@/utils/sanitize';
 import type { Topology, GeometryCollection } from 'topojson-specification';
 import type { Feature, Geometry } from 'geojson';
-import type { MapLayers, Hotspot, NewsItem, Earthquake, InternetOutage, RelatedAsset, AssetType, AisDisruptionEvent, AisDensityZone, CableAdvisory, RepairShip, SocialUnrestEvent, AirportDelayAlert, MilitaryFlight, MilitaryVessel, MilitaryFlightCluster, MilitaryVesselCluster, NaturalEvent } from '@/types';
+import type { MapLayers, Hotspot, NewsItem, Earthquake, InternetOutage, RelatedAsset, AssetType, AisDisruptionEvent, AisDensityZone, CableAdvisory, RepairShip, SocialUnrestEvent, AirportDelayAlert, MilitaryFlight, MilitaryVessel, MilitaryFlightCluster, MilitaryVesselCluster, NaturalEvent, MapNewsLocation } from '@/types';
 import type { TechHubActivity } from '@/services/tech-activity';
 import type { GeoHubActivity } from '@/services/geo-activity';
 import { getNaturalEventIcon } from '@/services/eonet';
@@ -3228,7 +3228,7 @@ export class MapComponent {
     this.render();
   }
 
-  public setNewsLocations(_data: Array<{ lat: number; lon: number; title: string; threatLevel: string }>): void {
+  public setNewsLocations(_data: MapNewsLocation[]): void {
     // SVG fallback: news locations rendered as simple circles
     // For now, skip on SVG map to keep mobile lightweight
   }

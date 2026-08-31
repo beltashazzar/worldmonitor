@@ -27,6 +27,7 @@ import type {
   UcdpGeoEvent,
   DisplacementFlow,
   ClimateAnomaly,
+  MapNewsLocation,
 } from '@/types';
 import type { WeatherAlert } from '@/services/weather';
 
@@ -295,7 +296,7 @@ export class MapContainer {
     }
   }
 
-  public setNewsLocations(data: Array<{ lat: number; lon: number; title: string; threatLevel: string }>): void {
+  public setNewsLocations(data: MapNewsLocation[]): void {
     if (this.useDeckGL) {
       this.deckGLMap?.setNewsLocations(data);
     } else {

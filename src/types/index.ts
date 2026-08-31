@@ -55,6 +55,21 @@ export interface ClusteredEvent {
   lon?: number;
 }
 
+/**
+ * A geo-located news cluster as the map carries it. Derived from ClusteredEvent, which is
+ * where url/source/sourceCount come from — they are optional because the seeded harness
+ * fixtures and the SVG fallback map only ever needed a position and a title.
+ */
+export interface MapNewsLocation {
+  lat: number;
+  lon: number;
+  title: string;
+  threatLevel: string;
+  url?: string;
+  source?: string;
+  sourceCount?: number;
+}
+
 export type AssetType = 'pipeline' | 'cable' | 'datacenter' | 'base' | 'nuclear';
 
 export interface RelatedAsset {

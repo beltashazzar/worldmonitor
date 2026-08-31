@@ -2925,6 +2925,9 @@ export class App {
           lon: c.lon,
           title: c.primaryTitle,
           threatLevel: c.threat?.level ?? 'info',
+          url: c.primaryLink,
+          source: c.primarySource,
+          sourceCount: c.sourceCount,
         }));
       if (geoLocated.length > 0) {
         this.map?.setNewsLocations(geoLocated);

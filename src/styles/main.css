@@ -3941,6 +3941,10 @@ a.prediction-link:hover {
   color: #ef4444;
 }
 
+.popup-header.news .popup-title {
+  color: #60a5fa;
+}
+
 .popup-title.magnitude {
   font-size: 28px;
 }
