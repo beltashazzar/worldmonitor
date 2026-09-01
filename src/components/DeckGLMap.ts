@@ -194,7 +194,7 @@ const COLORS = {
 // clock, and they fade linearly to nothing over seven days before being dropped entirely.
 const QUAKE_MIN_MAGNITUDE = 4.0;
 const QUAKE_MAX_MAGNITUDE = 11;
-const QUAKE_MIN_RADIUS_PX = 10;
+const QUAKE_MIN_RADIUS_PX = 5;
 const QUAKE_MAX_RADIUS_PX = 52;
 const QUAKE_DECAY_MS = 7 * 24 * 60 * 60 * 1000;
 
