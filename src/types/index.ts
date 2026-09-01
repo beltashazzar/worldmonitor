@@ -524,6 +524,7 @@ export interface MapLayers {
   flights: boolean;
   military: boolean;
   natural: boolean;
+  earthquakes: boolean;
   spaceports: boolean;
   minerals: boolean;
   fires: boolean;

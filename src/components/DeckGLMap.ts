@@ -881,8 +881,10 @@ export class DeckGLMap {
       }
     }
 
-    // Earthquakes layer + ghost for easier picking
-    if (mapLayers.natural && this.earthquakes.length > 0) {
+    // Earthquakes layer + ghost for easier picking. Gated on its own flag rather than
+    // `natural`: USGS seismic and NASA EONET's storms/fires/floods are separate concerns
+    // that happened to share a toggle, which made earthquakes look untoggleable.
+    if (mapLayers.earthquakes && this.earthquakes.length > 0) {
       layers.push(this.createEarthquakesLayer());
       layers.push(this.createGhostLayer('earthquakes-layer', this.earthquakes, d => [d.lon, d.lat], { radiusMinPixels: 12 }));
     }
@@ -2456,6 +2458,7 @@ export class DeckGLMap {
           { key: 'outages', label: 'Internet Outages', icon: '&#128225;' },
           { key: 'techEvents', label: 'Tech Events', icon: '&#128197;' },
           { key: 'natural', label: 'Natural Events', icon: '&#127755;' },
+          { key: 'earthquakes', label: 'Earthquakes', icon: '&#12336;' },
           { key: 'fires', label: 'Fires', icon: '&#128293;' },
         ]
       : [
@@ -2479,6 +2482,7 @@ export class DeckGLMap {
           { key: 'weather', label: 'Weather Alerts', icon: '&#9928;' },
           { key: 'outages', label: 'Internet Outages', icon: '&#128225;' },
           { key: 'natural', label: 'Natural Events', icon: '&#127755;' },
+          { key: 'earthquakes', label: 'Earthquakes', icon: '&#12336;' },
           { key: 'fires', label: 'Fires', icon: '&#128293;' },
           { key: 'waterways', label: 'Strategic Waterways', icon: '&#9875;' },
           { key: 'economic', label: 'Economic Centers', icon: '&#128176;' },
@@ -2590,7 +2594,8 @@ export class DeckGLMap {
         </div>
         <div class="layer-help-section">
           <div class="layer-help-title">Natural & Economic</div>
-          <div class="layer-help-item"><span>NATURAL</span> Earthquakes, storms, fires (may affect data centers)</div>
+          <div class="layer-help-item"><span>NATURAL</span> Storms, fires, floods (may affect data centers)</div>
+          <div class="layer-help-item"><span>EARTHQUAKES</span> Seismic events (may affect data centers)</div>
           <div class="layer-help-item"><span>WEATHER</span> Severe weather alerts</div>
           <div class="layer-help-item"><span>ECONOMIC</span> Stock exchanges & central banks</div>
           <div class="layer-help-item"><span>COUNTRIES</span> Country name overlays</div>
@@ -2638,7 +2643,8 @@ export class DeckGLMap {
         </div>
         <div class="layer-help-section">
           <div class="layer-help-title">Natural & Economic</div>
-          <div class="layer-help-item"><span>NATURAL</span> Earthquakes (USGS) + storms, fires, volcanoes, floods (NASA EONET)</div>
+          <div class="layer-help-item"><span>NATURAL</span> Storms, fires, volcanoes, floods, ice, drought (NASA EONET + GDACS)</div>
+          <div class="layer-help-item"><span>EARTHQUAKES</span> Seismic events (USGS)</div>
           <div class="layer-help-item"><span>WEATHER</span> Severe weather alerts</div>
           <div class="layer-help-item"><span>ECONOMIC</span> Stock exchanges & central banks</div>
         </div>
