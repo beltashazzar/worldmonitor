@@ -186,6 +186,24 @@ const COLORS = {
   xpulseMedium: [234, 179, 8, 200] as [number, number, number, number],
 };
 
+// Earthquake locators. M4.0 is the floor — below that the map is noise, and the feed is
+// filtered to it server-side. Magnitude maps linearly onto a ring radius between 4 and 11
+// and clamps above 11; energy release is exponential, but an exponential radius makes
+// everything under M6 look identical, and the point here is to grade the 4-to-11 band.
+// Rings are unfilled so overlapping quakes stay countable, they breathe on the shared pulse
+// clock, and they fade linearly to nothing over seven days before being dropped entirely.
+const QUAKE_MIN_MAGNITUDE = 4.0;
+const QUAKE_MAX_MAGNITUDE = 11;
+const QUAKE_MIN_RADIUS_PX = 5;
+const QUAKE_MAX_RADIUS_PX = 26;
+const QUAKE_DECAY_MS = 7 * 24 * 60 * 60 * 1000;
+
+function quakeRadiusPx(magnitude: number): number {
+  const clamped = Math.min(Math.max(magnitude ?? 0, QUAKE_MIN_MAGNITUDE), QUAKE_MAX_MAGNITUDE);
+  const t = (clamped - QUAKE_MIN_MAGNITUDE) / (QUAKE_MAX_MAGNITUDE - QUAKE_MIN_MAGNITUDE);
+  return QUAKE_MIN_RADIUS_PX + t * (QUAKE_MAX_RADIUS_PX - QUAKE_MIN_RADIUS_PX);
+}
+
 export type MilitaryFlightScope = 'all' | 'theater';
 
 // Reuses the same theater boxes the posture panel scores against, so "Theatre" on the map
@@ -886,7 +904,10 @@ export class DeckGLMap {
     // that happened to share a toggle, which made earthquakes look untoggleable.
     if (mapLayers.earthquakes && this.earthquakes.length > 0) {
       layers.push(this.createEarthquakesLayer());
-      layers.push(this.createGhostLayer('earthquakes-layer', this.earthquakes, d => [d.lon, d.lat], { radiusMinPixels: 12 }));
+      // Same filtered set as the visible layer — feeding the ghost the raw array would
+      // leave aged-out and sub-M4 quakes clickable with nothing drawn under the cursor.
+      const pickable = this.getVisibleEarthquakes(this.pulseTime || Date.now());
+      layers.push(this.createGhostLayer('earthquakes-layer', pickable, d => [d.lon, d.lat], { radiusMinPixels: 12 }));
     }
 
     // Natural events layer
@@ -1309,21 +1330,42 @@ export class DeckGLMap {
     });
   }
 
+  /** Quakes at or above M4.0 that are still inside the seven-day decay window. */
+  private getVisibleEarthquakes(now: number): Earthquake[] {
+    return this.earthquakes.filter((q) =>
+      (q.magnitude ?? 0) >= QUAKE_MIN_MAGNITUDE &&
+      now - q.time.getTime() < QUAKE_DECAY_MS);
+  }
+
   private createEarthquakesLayer(): ScatterplotLayer {
+    const now = this.pulseTime || Date.now();
+    // Breathes between roughly a third and full strength on the same clock the news and
+    // hotspot pulses use, so the map has one heartbeat rather than several.
+    const pulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now / 400));
+
     return new ScatterplotLayer({
       id: 'earthquakes-layer',
-      data: this.earthquakes,
+      data: this.getVisibleEarthquakes(now),
       getPosition: (d) => [d.lon, d.lat],
-      getRadius: (d) => Math.pow(2, d.magnitude) * 1000,
-      getFillColor: (d) => {
-        const mag = d.magnitude;
-        if (mag >= 6) return [255, 0, 0, 200] as [number, number, number, number];
-        if (mag >= 5) return [255, 100, 0, 200] as [number, number, number, number];
-        return COLORS.earthquake;
+      // Pixel radii keep a locator the same size at every zoom, which is what makes the
+      // magnitude ramp readable — in metres a M4 would vanish when zoomed out.
+      radiusUnits: 'pixels',
+      getRadius: (d) => quakeRadiusPx(d.magnitude),
+      filled: false,
+      stroked: true,
+      lineWidthUnits: 'pixels',
+      getLineWidth: 2,
+      getLineColor: (d) => {
+        const mag = d.magnitude ?? 0;
+        const rgb: [number, number, number] = mag >= 6
+          ? [255, 0, 0]
+          : mag >= 5 ? [255, 100, 0] : [255, 100, 50];
+        const age = now - d.time.getTime();
+        const decay = Math.max(0, 1 - age / QUAKE_DECAY_MS);
+        return [...rgb, Math.round(255 * decay * pulse)] as [number, number, number, number];
       },
-      radiusMinPixels: 4,
-      radiusMaxPixels: 30,
       pickable: true,
+      updateTriggers: { getLineColor: now },
     });
   }
 
@@ -1950,6 +1992,8 @@ export class DeckGLMap {
   private pulseTime = 0;
 
   private needsPulseAnimation(): boolean {
+    // Earthquake rings fade in and out, so the clock has to keep ticking while any is visible.
+    if (this.state.layers.earthquakes && this.getVisibleEarthquakes(Date.now()).length > 0) return true;
     return this.hasRecentNews(Date.now())
       || this.protestClusters.some(c => c.maxSeverity === 'high' || c.hasRiot)
       || this.hotspots.some(h => h.level === 'high' || h.hasBreaking);
