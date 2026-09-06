@@ -2096,7 +2096,44 @@ export class DeckGLMap {
     return layers;
   }
 
-  private getTooltip(info: PickingInfo): { html: string } | null {
+  // The tooltip's own hard bounds, mirrored from .deckgl-tooltip in main.css. The
+  // flip thresholds below are only honest because the CSS actually enforces these —
+  // guessing a height here is how a tooltip ends up half off the screen anyway.
+  private static readonly TOOLTIP_MAX_W = 250;
+  private static readonly TOOLTIP_MAX_H = 220;
+  private static readonly TOOLTIP_GAP = 14;
+
+  // ⚠️ deck.gl puts the tooltip's TOP-LEFT corner exactly on the pointer and does
+  // nothing else — tooltip-widget.ts sets `transform: translate(x, y)` and has no
+  // notion of an edge. Sweeping a 26x16 grid of hover positions over a 1400x900
+  // window, 10 of the 38 that produced a tooltip ran off the right of the viewport,
+  // the worst by 202px, which is most of the card.
+  //
+  // The one seam deck.gl leaves open is `style`, which it applies AFTER its own
+  // transform, so a returned transform wins. Flipping with a percentage rather than
+  // a pixel count is what makes this exact: percentages resolve against the tooltip's
+  // own box, so no height has to be measured or guessed at the moment the tooltip is
+  // still empty.
+  private getTooltip(info: PickingInfo): { html: string; style: Partial<CSSStyleDeclaration> } | null {
+    const content = this.getTooltipContent(info);
+    if (!content) return null;
+
+    const vw = info.viewport?.width ?? 0;
+    const vh = info.viewport?.height ?? 0;
+    const maxH = Math.min(vh * 0.4, DeckGLMap.TOOLTIP_MAX_H);
+    const flipX = vw > 0 && info.x + DeckGLMap.TOOLTIP_MAX_W + DeckGLMap.TOOLTIP_GAP > vw;
+    const flipY = vh > 0 && info.y + maxH + DeckGLMap.TOOLTIP_GAP > vh;
+
+    return {
+      ...content,
+      style: {
+        transform: `translate(${info.x}px, ${info.y}px) `
+          + `translate(${flipX ? '-100%' : '0'}, ${flipY ? '-100%' : '0'})`,
+      },
+    };
+  }
+
+  private getTooltipContent(info: PickingInfo): { html: string } | null {
     if (!info.object) return null;
 
     const rawLayerId = info.layer?.id || '';

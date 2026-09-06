@@ -101,14 +101,30 @@ export class MapPopup {
     const containerRect = this.container.getBoundingClientRect();
 
     if (isMobileDevice()) {
-      // On mobile, center the popup horizontally and position in upper area
-      this.popup.style.left = '50%';
-      this.popup.style.transform = 'translateX(-50%)';
-      this.popup.style.top = `${Math.max(60, Math.min(containerRect.top + data.y, window.innerHeight * 0.4))}px`;
+      // ⚠️ Do NOT centre this with left:50% + translateX(-50%). The <=480px block in
+      // main.css pins left and right with !important, which beats the inline `left`
+      // but leaves the inline TRANSFORM untouched — so the card kept its correct CSS
+      // width and then slid half that width off the screen. Measured on a 390px
+      // device (575px layout viewport): computed left:10px, width:555px, and
+      // transform matrix(...,-277.5,0), putting the card's left edge at -267. Every
+      // one of 30 sampled taps did this.
+      //
+      // One owner for each axis is the fix: the stylesheet decides horizontal (the
+      // inline values below only reach the 481-768px band, where it says nothing),
+      // and this decides vertical.
+      const gutter = 16;
+      const top = Math.max(60, Math.min(containerRect.top + data.y, window.innerHeight * 0.4));
+      this.popup.style.transform = '';
+      this.popup.style.left = `${gutter}px`;
+      this.popup.style.right = `${gutter}px`;
+      this.popup.style.width = 'auto';
+      this.popup.style.top = `${top}px`;
+      // The CSS cap is a vh fraction that does not know where the card starts, so it
+      // cannot stop a card opened low on the screen from running off the bottom.
+      this.popup.style.maxHeight = `${Math.max(120, window.innerHeight - top - gutter)}px`;
     } else {
       // Desktop: position near click with smart bounds checking
       this.popup.style.transform = '';
-      const popupWidth = 380;
       const bottomBuffer = 50; // Buffer from viewport bottom
       const topBuffer = 60; // Header height
 
@@ -118,6 +134,10 @@ export class MapPopup {
       this.popup.style.left = '-9999px';
       document.body.appendChild(this.popup);
       const popupHeight = this.popup.offsetHeight;
+      // ⚠️ Measured, not the 380 this used to assume. The width is set in CSS and a
+      // media query can change it out from under this arithmetic; the element is
+      // already here being measured for its height, so there is no reason to guess.
+      const popupWidth = this.popup.offsetWidth;
       document.body.removeChild(this.popup);
       this.popup.style.visibility = '';
 

@@ -9853,7 +9853,15 @@ a.prediction-link:hover {
   border-radius: 4px;
   font-size: 11px;
   color: var(--text);
+  /* ⚠️ These two are a contract with DeckGLMap.TOOLTIP_MAX_W / TOOLTIP_MAX_H, which
+     decide from them whether to flip the tooltip away from the right or bottom edge.
+     deck.gl itself does no edge handling at all, so the flip is the only thing
+     keeping the tooltip on screen — change one of these and change the other.
+     220px is roughly thirteen lines at this width; nothing here comes near it, so
+     the clip is a guarantee rather than something a reader will ever meet. */
   max-width: 250px;
+  max-height: 220px;
+  overflow: hidden;
   pointer-events: none;
 }
 
