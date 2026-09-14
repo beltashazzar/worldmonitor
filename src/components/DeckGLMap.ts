@@ -6,7 +6,8 @@
 import { MapboxOverlay } from '@deck.gl/mapbox';
 import type { Layer, LayersList, PickingInfo } from '@deck.gl/core';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, IconLayer, TextLayer } from '@deck.gl/layers';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import Supercluster from 'supercluster';
 import type {
   MapLayers,
@@ -136,6 +137,12 @@ const MAP_INTERACTION_MODE: MapInteractionMode =
 // a style or source that fails there surfaces as a MapLibre 'error' event instead of as
 // pixels. Attribution rides on the style's own TileJSON; attributionControl is off below.
 const BASEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
+
+// MapLibre 6 derives its worker URL from import.meta.url, which inside a bundle points at our
+// chunk rather than at maplibre's dist folder — dev 404s the worker and a production build
+// never emits it, so the style never loads and the map stays blank. `?worker&url` makes Vite
+// emit the worker as a self-contained chunk; plain `?url` would drop its shared sibling.
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 // Zoom thresholds for layer visibility and labels (matches old Map.ts)
 // Zoom-dependent layer visibility and labels
