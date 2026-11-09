@@ -78,6 +78,7 @@ import { POSTURE_THEATERS } from '@/services/military-surge';
 import { getCountryScore } from '@/services/country-instability';
 import { getAlertsNearLocation } from '@/services/geo-convergence';
 import { getCountriesGeoJson, getCountryAtCoordinates } from '@/services/country-geometry';
+import { quakeTier } from '@/utils/quake-tier';
 
 export type TimeRange = '1h' | '6h' | '24h' | '48h' | '7d' | 'all';
 export type DeckMapView = 'global' | 'america' | 'mena' | 'eu' | 'asia' | 'latam' | 'africa' | 'oceania';
@@ -1363,10 +1364,8 @@ export class DeckGLMap {
       lineWidthUnits: 'pixels',
       getLineWidth: 2,
       getLineColor: (d) => {
-        const mag = d.magnitude ?? 0;
-        const rgb: [number, number, number] = mag >= 6
-          ? [255, 0, 0]
-          : mag >= 5 ? [255, 100, 0] : [255, 100, 50];
+        // Gray for the routine M4/M5 background, colour only from M6 up.
+        const rgb = quakeTier(d.magnitude).rgb;
         const age = now - d.time.getTime();
         const decay = Math.max(0, 1 - age / QUAKE_DECAY_MS);
         return [...rgb, Math.round(255 * decay * pulse)] as [number, number, number, number];

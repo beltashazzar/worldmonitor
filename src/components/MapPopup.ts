@@ -10,6 +10,7 @@ import { isMobileDevice } from '@/utils';
 import { fetchHotspotContext, formatArticleDate, extractDomain, type GdeltArticle } from '@/services/gdelt-intel';
 import { getNaturalEventIcon } from '@/services/eonet';
 import { getHotspotEscalation, getEscalationChange24h } from '@/services/hotspot-escalation';
+import { quakeTier } from '@/utils/quake-tier';
 
 export type PopupType = 'conflict' | 'hotspot' | 'earthquake' | 'weather' | 'base' | 'waterway' | 'apt' | 'nuclear' | 'economic' | 'irradiator' | 'pipeline' | 'cable' | 'cable-advisory' | 'repair-ship' | 'outage' | 'datacenter' | 'datacenterCluster' | 'ais' | 'protest' | 'protestCluster' | 'flight' | 'militaryFlight' | 'militaryVessel' | 'militaryFlightCluster' | 'militaryVesselCluster' | 'natEvent' | 'port' | 'spaceport' | 'mineral' | 'startupHub' | 'cloudRegion' | 'techHQ' | 'accelerator' | 'techEvent' | 'techHQCluster' | 'techEventCluster' | 'techActivity' | 'geoActivity' | 'xSentiment' | 'news';
 
@@ -569,15 +570,16 @@ export class MapPopup {
   }
 
   private renderEarthquakePopup(earthquake: Earthquake): string {
-    const severity = earthquake.magnitude >= 6 ? 'high' : earthquake.magnitude >= 5 ? 'medium' : 'low';
-    const severityLabel = earthquake.magnitude >= 6 ? 'MAJOR' : earthquake.magnitude >= 5 ? 'MODERATE' : 'MINOR';
+    // Same tier, same colour as the ring that was clicked.
+    const tier = quakeTier(earthquake.magnitude);
+    const badgeStyle = `background: rgb(${tier.rgb.join(',')}); color: ${tier.onFill}`;
 
     const timeAgo = this.getTimeAgo(earthquake.time);
 
     return `
       <div class="popup-header earthquake">
         <span class="popup-title magnitude">M${earthquake.magnitude.toFixed(1)}</span>
-        <span class="popup-badge ${severity}">${severityLabel}</span>
+        <span class="popup-badge" style="${badgeStyle}">${tier.label}</span>
         <button class="popup-close">×</button>
       </div>
       <div class="popup-body">
