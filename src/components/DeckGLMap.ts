@@ -140,6 +140,20 @@ const MAP_INTERACTION_MODE: MapInteractionMode =
 // pixels. Attribution rides on the style's own TileJSON; attributionControl is off below.
 const BASEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 
+// In this style the LAND is the 'background' layer, rgb(12,12,12), and the oceans are the
+// lighter 'water' fill, rgb(27,27,29). Land is lifted to 40 so the continents read as
+// lighter than the sea (Daniel, 2026-11-08). Exactly 2x (24) was tried: it is within 3 of
+// the water, and the coastlines all but vanish. The ice and pier fills were painted at or
+// below the old land shade and would show as dark blobs (Greenland, Antarctica), so they
+// follow the land. Water and every opacity are left as the style has them.
+const BASEMAP_LAND_COLOR = 'rgb(40,40,40)';
+const BASEMAP_LAND_LAYERS: Array<[layerId: string, property: 'background-color' | 'fill-color']> = [
+  ['background', 'background-color'],
+  ['landcover_ice_shelf', 'fill-color'],
+  ['landcover_glacier', 'fill-color'],
+  ['road_area_pier', 'fill-color'],
+];
+
 // MapLibre 6 derives its worker URL from import.meta.url, which inside a bundle points at our
 // chunk rather than at maplibre's dist folder — dev 404s the worker and a production build
 // never emits it, so the style never loads and the map stays blank. `?worker&url` makes Vite
@@ -363,6 +377,7 @@ export class DeckGLMap {
     this.maplibreMap?.on('load', () => {
       this.initDeck();
       this.useEnglishBasemapLabels();
+      this.lightenBasemapLand();
       this.loadCountryBoundaries();
       this.render();
     });
@@ -440,6 +455,20 @@ export class DeckGLMap {
       }
     } catch (err) {
       console.warn('[DeckGLMap] Could not switch basemap labels to English:', err);
+    }
+  }
+
+  private lightenBasemapLand(): void {
+    const map = this.maplibreMap;
+    if (!map) return;
+    for (const [layerId, property] of BASEMAP_LAND_LAYERS) {
+      // A missing layer means OpenFreeMap renamed it; leave the rest of the style alone.
+      if (!map.getLayer(layerId)) continue;
+      try {
+        map.setPaintProperty(layerId, property, BASEMAP_LAND_COLOR);
+      } catch (err) {
+        console.warn(`[DeckGLMap] Could not lighten basemap layer ${layerId}:`, err);
+      }
     }
   }
 
