@@ -433,6 +433,51 @@ body.animations-paused .signal-modal {
   display: none;
 }
 
+/* The section is a row: [Live News column | map column]. The column's width is set from JS
+   (App.syncMapSideWidth) so its right edge lines up with the grid's second card column. */
+.map-section {
+  flex-direction: row;
+}
+
+.map-main {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.map-side {
+  flex: 0 0 auto;
+  width: 33%;
+  min-width: 0;
+  display: flex;
+  border-right: 1px solid var(--border);
+}
+
+/* Collapse the column when Live News is switched off in Panels (or not mounted). */
+.map-side:not(:has(> .panel:not(.hidden))) {
+  display: none;
+}
+
+.map-side > .panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0 !important; /* beats .span-N, left over if it was resized in the grid */
+  max-height: none;
+  border: none;
+}
+
+.map-side > .panel .panel-resize-handle {
+  display: none;
+}
+
+/* Fill the column; YouTube letterboxes inside the frame instead of the frame overflowing. */
+.map-side .live-news-player {
+  aspect-ratio: auto;
+  height: 100%;
+}
+
 .map-section .panel-header {
   flex-shrink: 0;
 }

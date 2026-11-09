@@ -118,6 +118,7 @@ interface TechEventMarker {
 
 // View presets with longitude, latitude, zoom
 const VIEW_PRESETS: Record<DeckMapView, { longitude: number; latitude: number; zoom: number }> = {
+  // The zoom here is only a fallback: 'global' is fitted to the map's width (presetFor()).
   global: { longitude: 0, latitude: 20, zoom: 1.5 },
   america: { longitude: -95, latitude: 38, zoom: 3 },
   mena: { longitude: 45, latitude: 28, zoom: 3.5 },
@@ -147,6 +148,12 @@ maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 // Zoom thresholds for layer visibility and labels (matches old Map.ts)
 // Zoom-dependent layer visibility and labels
+// MapLibre's world is 512px wide at zoom 0 and doubles per zoom level.
+const WORLD_PX_AT_ZOOM_0 = 512;
+// The 'global' fit never zooms out past 1: conflict zones and natural events switch off
+// below it (LAYER_ZOOM_THRESHOLDS), so a narrow map would silently lose two layers.
+const GLOBAL_MIN_ZOOM = 1;
+
 const LAYER_ZOOM_THRESHOLDS: Partial<Record<keyof MapLayers, { minZoom: number; showLabels?: number }>> = {
   bases: { minZoom: 3, showLabels: 5 },
   nuclear: { minZoom: 3 },
@@ -309,6 +316,8 @@ export class DeckGLMap {
   private renderPaused = false;
   private renderPending = false;
   private resizeObserver: ResizeObserver | null = null;
+  /** Zoom of the last 'global' fit applied, so a resize can tell whether the viewer moved since. */
+  private globalFitZoom: number | null = null;
 
   private layerCache: Map<string, Layer> = new Map();
   private lastZoomThreshold = 0;
@@ -383,7 +392,8 @@ export class DeckGLMap {
   }
 
   private initMapLibre(): void {
-    const preset = VIEW_PRESETS[this.state.view];
+    const preset = this.presetFor(this.state.view);
+    if (this.state.view === 'global') this.globalFitZoom = preset.zoom;
 
     this.maplibreMap = new maplibregl.Map({
       container: 'deckgl-basemap',
@@ -489,6 +499,7 @@ export class DeckGLMap {
     this.resizeObserver = new ResizeObserver(() => {
       if (this.maplibreMap) {
         this.maplibreMap.resize();
+        this.refitGlobalIfUntouched();
       }
     });
     this.resizeObserver.observe(this.container);
@@ -2858,9 +2869,38 @@ export class DeckGLMap {
     }
   }
 
+  /**
+   * 'global' is fitted so the whole 360 degrees spans the map's width, rather than a fixed
+   * zoom: the map's width depends on the window and on the Live News column beside it, and a
+   * fixed zoom either repeated the world (wide map) or cut the Americas off (narrow map).
+   */
+  private presetFor(view: DeckMapView): { longitude: number; latitude: number; zoom: number } {
+    const preset = VIEW_PRESETS[view];
+    if (view !== 'global') return preset;
+    const width = this.container.clientWidth;
+    if (!width) return preset;
+    return { ...preset, zoom: Math.max(GLOBAL_MIN_ZOOM, Math.log2(width / WORLD_PX_AT_ZOOM_0)) };
+  }
+
+  /** Re-fit 'global' after a resize, but only if the camera is still where the last fit put it. */
+  private refitGlobalIfUntouched(): void {
+    const map = this.maplibreMap;
+    if (!map || this.state.view !== 'global' || this.globalFitZoom === null) return;
+    if (map.isMoving()) return;
+    const preset = this.presetFor('global');
+    const center = map.getCenter();
+    const untouched = Math.abs(map.getZoom() - this.globalFitZoom) < 0.01
+      && Math.abs(center.lng - preset.longitude) < 0.01
+      && Math.abs(center.lat - preset.latitude) < 0.01;
+    if (!untouched || Math.abs(preset.zoom - this.globalFitZoom) < 0.01) return;
+    map.jumpTo({ center: [preset.longitude, preset.latitude], zoom: preset.zoom });
+    this.globalFitZoom = preset.zoom;
+  }
+
   public setView(view: DeckMapView): void {
     this.state.view = view;
-    const preset = VIEW_PRESETS[view];
+    const preset = this.presetFor(view);
+    this.globalFitZoom = view === 'global' ? preset.zoom : null;
 
     if (this.maplibreMap) {
       this.maplibreMap.flyTo({

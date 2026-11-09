@@ -120,6 +120,7 @@ export class App {
   private allNews: NewsItem[] = [];
   private monitors: Monitor[];
   private panelSettings: Record<string, PanelConfig>;
+  private mapSideObserver: ResizeObserver | null = null;
   private mapLayers: MapLayers;
   private signalModal: SignalModal | null = null;
   private playbackControl: PlaybackControl | null = null;
@@ -1473,6 +1474,8 @@ export class App {
       </div>
       <div class="main-content">
         <div class="map-section" id="mapSection">
+          <div class="map-side" id="mapSide"></div>
+          <div class="map-main">
           <div class="panel-header">
             <div class="panel-header-left">
               <span class="panel-title">${SITE_VARIANT === 'tech' ? 'Global Tech' : 'Global Situation'}</span>
@@ -1484,6 +1487,7 @@ export class App {
             </button>
           </div>
           <div class="map-container" id="mapContainer"></div>
+          </div>
           <div class="map-resize-handle" id="mapResizeHandle"></div>
         </div>
         <div class="panels-grid" id="panelsGrid"></div>
@@ -1998,7 +2002,10 @@ export class App {
       if (panel) {
         const el = panel.getElement();
         this.makeDraggable(el, key);
-        panelsGrid.appendChild(el);
+        // live-news is mounted by placeLiveNews() (via applyPanelSettings below), normally
+        // beside the map. Appending it here first would move its iframe twice, and every
+        // move reloads the stream.
+        if (key !== 'live-news') panelsGrid.appendChild(el);
       }
     });
 
@@ -2142,7 +2149,8 @@ export class App {
       if (!dragging || dragging === el) return;
 
       const grid = document.getElementById('panelsGrid');
-      if (!grid) return;
+      // A panel outside the grid (live-news beside the map) is not a drop target.
+      if (!grid || !grid.contains(el)) return;
 
       const siblings = Array.from(grid.children).filter((c) => c !== dragging);
       const nextSibling = siblings.find((sibling) => {
@@ -2556,6 +2564,59 @@ export class App {
       const panel = this.panels[key];
       panel?.toggle(config.enabled);
     });
+    this.placeLiveNews();
+  }
+
+  /**
+   * Live News lives in a column on the left of the map section rather than in the card grid,
+   * so the map is closer to the world's own 2:1 shape (full-width it was short and wide, and
+   * repeated the world) and the cards run the full width underneath. The map's own overlays
+   * (layers, time filter, legend, zoom) are inside #mapContainer, so they move with the map.
+   * It falls back to the top of the grid on mobile, or when the map itself is switched off.
+   */
+  private placeLiveNews(): void {
+    const panel = this.panels['live-news'];
+    const side = document.getElementById('mapSide');
+    const grid = document.getElementById('panelsGrid');
+    if (!panel || !side || !grid) return;
+    const el = panel.getElement();
+    const besideMap = !this.isMobile && this.panelSettings['map']?.enabled !== false;
+    const target = besideMap ? side : grid;
+    // Only move when the home changes: re-parenting an iframe reloads the stream.
+    if (el.parentElement !== target) target.prepend(el);
+    el.draggable = !besideMap;
+
+    if (!this.mapSideObserver) {
+      // The grid's column tracks change with the window width; follow them.
+      this.mapSideObserver = new ResizeObserver(() => this.syncMapSideWidth());
+      this.mapSideObserver.observe(grid);
+    }
+    this.syncMapSideWidth();
+  }
+
+  /** Size the Live News column so its right edge lines up with the grid's second column. */
+  private syncMapSideWidth(): void {
+    const side = document.getElementById('mapSide');
+    const grid = document.getElementById('panelsGrid');
+    if (!side || !grid || !side.parentElement) return;
+    const cs = getComputedStyle(grid);
+    // Resolved track sizes in px, e.g. "315.2px 315.2px 315.2px 315.2px 315.2px".
+    // 'none' when the grid is not a grid (mobile), which takes the fallback.
+    const cols = cs.gridTemplateColumns.split(' ').map(parseFloat).filter((n) => !Number.isNaN(n));
+    let width: number;
+    if (cols.length >= 3) {
+      const gap = parseFloat(cs.columnGap) || 0;
+      const right = grid.getBoundingClientRect().left + (parseFloat(cs.paddingLeft) || 0)
+        + cols[0]! + gap + cols[1]!;
+      width = right - side.parentElement.getBoundingClientRect().left;
+    } else {
+      width = side.parentElement.clientWidth / 3;
+    }
+    const px = `${Math.round(width)}px`;
+    if (side.style.width !== px) {
+      side.style.width = px;
+      this.map?.render();
+    }
   }
 
   private updateTime(): void {
