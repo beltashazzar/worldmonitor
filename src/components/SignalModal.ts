@@ -3,6 +3,28 @@ import type { UnifiedAlert } from '@/services/cross-module-integration';
 import { escapeHtml } from '@/utils/sanitize';
 import { getSignalContext, type SignalType } from '@/utils/analysis-constants';
 
+// Whether new findings pop the modal up on their own. Off unless the viewer turns it on
+// from the 🎯 findings dropdown: the full-screen scrim covered the map and panels mid-update,
+// and every finding already lands in that dropdown, which pulses and chimes when one arrives.
+// Opening a finding from the dropdown is a deliberate act and is never gated.
+const AUTO_POPUP_KEY = 'wm-signal-autopopup';
+
+export function isSignalAutoPopupEnabled(): boolean {
+  try {
+    return localStorage.getItem(AUTO_POPUP_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setSignalAutoPopupEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(AUTO_POPUP_KEY, enabled ? '1' : '0');
+  } catch {
+    // Storage unavailable (private mode): the choice lasts for this page only.
+  }
+}
+
 export class SignalModal {
   private element: HTMLElement;
   private currentSignals: CorrelationSignal[] = [];
@@ -78,8 +100,10 @@ export class SignalModal {
     this.onLocationClick = handler;
   }
 
+  /** Automatic path: new findings from the refresh loops. No-op unless auto-popup is on. */
   public show(signals: CorrelationSignal[]): void {
     if (signals.length === 0) return;
+    if (!isSignalAutoPopupEnabled()) return;
     if (document.fullscreenElement) return;
 
     this.currentSignals = [...signals, ...this.currentSignals].slice(0, 50);

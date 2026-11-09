@@ -2,6 +2,7 @@ import { getRecentSignals, type CorrelationSignal } from '@/services/correlation
 import { getRecentAlerts, type UnifiedAlert } from '@/services/cross-module-integration';
 import { getSignalContext } from '@/utils/analysis-constants';
 import { escapeHtml } from '@/utils/sanitize';
+import { isSignalAutoPopupEnabled, setSignalAutoPopupEnabled } from './SignalModal';
 
 const LOW_COUNT_THRESHOLD = 3;
 const MAX_VISIBLE_FINDINGS = 10;
@@ -53,6 +54,18 @@ export class IntelligenceFindingsBadge {
     // Event delegation for finding items and "more" link
     this.dropdown.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
+
+      // Auto-popup switch. Not an <input>: the dropdown lives inside the badge <button>,
+      // and Firefox never delivers clicks to form controls nested in a button.
+      const autoPopup = target.closest('.findings-autopopup');
+      if (autoPopup) {
+        e.stopPropagation();
+        const enabled = !isSignalAutoPopupEnabled();
+        setSignalAutoPopupEnabled(enabled);
+        autoPopup.classList.toggle('on', enabled);
+        autoPopup.setAttribute('aria-checked', String(enabled));
+        return;
+      }
 
       // Handle "more findings" click - show all in modal
       if (target.closest('.findings-more')) {
@@ -218,6 +231,7 @@ export class IntelligenceFindingsBadge {
             <span class="empty-text">Scanning for correlations and anomalies...</span>
           </div>
         </div>
+        ${this.renderAutoPopupSwitch()}
       `;
       return;
     }
@@ -267,6 +281,18 @@ export class IntelligenceFindingsBadge {
           ${findingsHtml}
         </div>
         ${moreCount > 0 ? `<div class="findings-more">+${moreCount} more findings</div>` : ''}
+      </div>
+      ${this.renderAutoPopupSwitch()}
+    `;
+  }
+
+  private renderAutoPopupSwitch(): string {
+    const on = isSignalAutoPopupEnabled();
+    return `
+      <div class="findings-autopopup${on ? ' on' : ''}" role="switch" aria-checked="${on}"
+           title="Pop new findings up over the map as they arrive">
+        <span class="autopopup-label">Auto-open popups</span>
+        <span class="autopopup-track"><span class="autopopup-knob"></span></span>
       </div>
     `;
   }

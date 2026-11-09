@@ -47,6 +47,13 @@ body.animations-paused *::after {
   transition: none !important;
 }
 
+/* ...except the signal modal's one-shot entry animation. It starts at opacity 0, and the
+   modal opens on its own exactly when the viewer has gone idle, so a frozen frame 0 left an
+   invisible dialog on a black scrim that hid the whole page until the mouse moved. */
+body.animations-paused .signal-modal {
+  animation-play-state: running !important;
+}
+
 #app {
   height: 100%;
   width: 100%;
@@ -8828,6 +8835,56 @@ a.prediction-link:hover {
 
 .findings-more:hover {
   background: rgba(255, 255, 255, 0.05);
+}
+
+/* Auto-open switch at the foot of the findings dropdown */
+.findings-autopopup {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.findings-autopopup:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.autopopup-track {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  border-radius: 7px;
+  background: #333;
+  transition: background 0.2s;
+}
+
+.autopopup-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: transform 0.2s, background 0.2s;
+}
+
+.findings-autopopup.on {
+  color: var(--text);
+}
+
+.findings-autopopup.on .autopopup-track {
+  background: var(--accent);
+}
+
+.findings-autopopup.on .autopopup-knob {
+  transform: translateX(12px);
+  background: var(--bg);
 }
 
 /* Findings Modal */
