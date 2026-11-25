@@ -4,6 +4,7 @@
  * Mobile devices gracefully degrade to the D3/SVG-based Map component
  */
 import { MapboxOverlay } from '@deck.gl/mapbox';
+import { ArrivalTracker, PULSE_WINDOW_MS, pulseBeat } from '@/utils/arrival-tracker';
 import type { Layer, LayersList, PickingInfo } from '@deck.gl/core';
 import { GeoJsonLayer, ScatterplotLayer, PathLayer, IconLayer, TextLayer } from '@deck.gl/layers';
 import * as maplibregl from 'maplibre-gl';
@@ -226,6 +227,9 @@ const QUAKE_MAX_MAGNITUDE = 11;
 const QUAKE_MIN_RADIUS_PX = 5;
 const QUAKE_MAX_RADIUS_PX = 52;
 const QUAKE_DECAY_MS = 7 * 24 * 60 * 60 * 1000;
+// The 7-day fade is re-evaluated in 5-minute steps: a ring loses ~0.05% of its alpha per step,
+// which is invisible, and it means the rings never need the animation clock.
+const QUAKE_FADE_STEP_MS = 5 * 60 * 1000;
 
 function quakeRadiusPx(magnitude: number): number {
   const clamped = Math.min(Math.max(magnitude ?? 0, QUAKE_MIN_MAGNITUDE), QUAKE_MAX_MAGNITUDE);
@@ -300,7 +304,12 @@ export class DeckGLMap {
   private flightDelays: AirportDelayAlert[] = [];
   private news: NewsItem[] = [];
   private newsLocations: MapNewsLocation[] = [];
-  private newsLocationFirstSeen = new Map<string, number>();
+  // New-arrival tracking for the 1 fps pulse (Daniel, 2026-11-25): only items that appear after
+  // the first data load pulse, for PULSE_WINDOW_MS, then draw static.
+  private newsArrivals = new ArrivalTracker();      // by headline
+  private hotspotArrivals = new ArrivalTracker();   // by hotspot id, while high or breaking
+  private protestArrivals = new ArrivalTracker();   // by event id, high-severity or riot events
+  private quakeArrivals = new ArrivalTracker();     // by USGS id
   private ucdpEvents: UcdpGeoEvent[] = [];
   private displacementFlows: DisplacementFlow[] = [];
   private climateAnomalies: ClimateAnomaly[] = [];
@@ -355,6 +364,18 @@ export class DeckGLMap {
 
   constructor(container: HTMLElement, initialState: DeckMapState) {
     this.container = container;
+    // Read-only answer to "why is the map animating?": which item kinds are inside their
+    // 10-min pulse window, and whether the 1 fps timer is running. Console: mapPulseDebug()
+    (window as unknown as Record<string, unknown>).mapPulseDebug = () => {
+      const now = Date.now();
+      return {
+        news: this.newsArrivals.anyNew(now),
+        hotspots: this.hotspotArrivals.anyNew(now),
+        protests: this.protestArrivals.anyNew(now),
+        quakes: this.quakeArrivals.anyNew(now),
+        timerRunning: this.newsPulseIntervalId !== null,
+      };
+    };
     this.state = initialState;
     this.hotspots = [...INTEL_HOTSPOTS];
 
@@ -539,12 +560,6 @@ export class DeckGLMap {
     return [...set].sort().join('|');
   }
 
-  private hasRecentNews(now = Date.now()): boolean {
-    for (const ts of this.newsLocationFirstSeen.values()) {
-      if (now - ts < 30_000) return true;
-    }
-    return false;
-  }
 
   private rebuildProtestSupercluster(): void {
     const points = this.protests.map((p, i) => ({
@@ -954,7 +969,7 @@ export class DeckGLMap {
       layers.push(this.createEarthquakesLayer());
       // Same filtered set as the visible layer — feeding the ghost the raw array would
       // leave aged-out and sub-M4 quakes clickable with nothing drawn under the cursor.
-      const pickable = this.getVisibleEarthquakes(this.pulseTime || Date.now());
+      const pickable = this.getVisibleEarthquakes(this.quakeClock());
       layers.push(this.createGhostLayer('earthquakes-layer', pickable, d => [d.lon, d.lat], { radiusMinPixels: 12 }));
     }
 
@@ -1385,11 +1400,18 @@ export class DeckGLMap {
       now - q.time.getTime() < QUAKE_DECAY_MS);
   }
 
+  /** Time for the quake fade, quantised so colours are only recomputed every few minutes. */
+  private quakeClock(): number {
+    return Math.floor(Date.now() / QUAKE_FADE_STEP_MS) * QUAKE_FADE_STEP_MS;
+  }
+
   private createEarthquakesLayer(): ScatterplotLayer {
-    const now = this.pulseTime || Date.now();
-    // Breathes between roughly a third and full strength on the same clock the news and
-    // hotspot pulses use, so the map has one heartbeat rather than several.
-    const pulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now / 400));
+    // Brightness is the 7-day age fade. A quake reported after load also beats at 1 fps for its
+    // first 10 min; the rest are static. Ghost picking uses the same quantised clock.
+    const now = this.quakeClock();
+    const wall = Date.now();
+    const beat = 0.45 + 0.55 * pulseBeat(wall);
+    const anyNew = this.quakeArrivals.anyNew(wall);
 
     return new ScatterplotLayer({
       id: 'earthquakes-layer',
@@ -1408,10 +1430,11 @@ export class DeckGLMap {
         const rgb = quakeTier(d.magnitude).rgb;
         const age = now - d.time.getTime();
         const decay = Math.max(0, 1 - age / QUAKE_DECAY_MS);
-        return [...rgb, Math.round(255 * decay * pulse)] as [number, number, number, number];
+        const flash = anyNew && this.quakeArrivals.isNew(d.id, wall) ? beat : 1;
+        return [...rgb, Math.round(255 * decay * flash)] as [number, number, number, number];
       },
       pickable: true,
-      updateTriggers: { getLineColor: now },
+      updateTriggers: { getLineColor: anyNew ? `${now}:${Math.floor(wall / 1000)}` : now },
     });
   }
 
@@ -1801,12 +1824,20 @@ export class DeckGLMap {
       }));
     }
 
-    const pulseClusters = this.protestClusters.filter(c => c.maxSeverity === 'high' || c.hasRiot);
-    if (pulseClusters.length > 0) {
-      const pulse = 1.0 + 0.8 * (0.5 + 0.5 * Math.sin((this.pulseTime || Date.now()) / 400));
+    // High/riot clusters always carry a ring. It beats at 1 fps for 10 min if the cluster holds
+    // an event that arrived after load, and is static otherwise.
+    const ringClusters = this.protestClusters.filter(c => c.maxSeverity === 'high' || c.hasRiot);
+    const ringNow = Date.now();
+    const newClusters = ringClusters.filter(c => this.isNewProtestCluster(c, ringNow));
+    const staticClusters = ringClusters.filter(c => !this.isNewProtestCluster(c, ringNow));
+    for (const [id, data, pulse] of [
+      ['protest-clusters-ring', staticClusters, 1.4],
+      ['protest-clusters-pulse', newClusters, 1.0 + 0.8 * pulseBeat(ringNow)],
+    ] as const) {
+      if (data.length === 0) continue;
       layers.push(new ScatterplotLayer<MapProtestCluster>({
-        id: 'protest-clusters-pulse',
-        data: pulseClusters,
+        id,
+        data,
         getPosition: d => [d.lon, d.lat],
         getRadius: d => 15000 + d.count * 2000,
         radiusScale: pulse,
@@ -1817,7 +1848,6 @@ export class DeckGLMap {
         getLineColor: d => d.hasRiot ? [220, 40, 40, 120] as [number, number, number, number] : [255, 80, 60, 100] as [number, number, number, number],
         lineWidthMinPixels: 1.5,
         pickable: false,
-        updateTriggers: { radiusScale: this.pulseTime },
       }));
     }
 
@@ -2005,12 +2035,18 @@ export class DeckGLMap {
 
     layers.push(this.createGhostLayer('hotspots-layer', this.hotspots, d => [d.lon, d.lat], { radiusMinPixels: 14 }));
 
+    // High/breaking hotspots always carry a ring: it beats at 1 fps for 10 min after the hotspot
+    // escalated (after load), and is static otherwise.
     const highHotspots = this.hotspots.filter(h => h.level === 'high' || h.hasBreaking);
-    if (highHotspots.length > 0) {
-      const pulse = 1.0 + 0.8 * (0.5 + 0.5 * Math.sin((this.pulseTime || Date.now()) / 400));
+    const ringNow = Date.now();
+    for (const [id, data, pulse] of [
+      ['hotspots-ring', highHotspots.filter(h => !this.hotspotArrivals.isNew(h.id, ringNow)), 1.4],
+      ['hotspots-pulse', highHotspots.filter(h => this.hotspotArrivals.isNew(h.id, ringNow)), 1.0 + 0.8 * pulseBeat(ringNow)],
+    ] as const) {
+      if (data.length === 0) continue;
       layers.push(new ScatterplotLayer({
-        id: 'hotspots-pulse',
-        data: highHotspots,
+        id,
+        data,
         getPosition: (d) => [d.lon, d.lat],
         getRadius: (d) => {
           const score = d.escalationScore || 1;
@@ -2027,7 +2063,6 @@ export class DeckGLMap {
         },
         lineWidthMinPixels: 1.5,
         pickable: false,
-        updateTriggers: { radiusScale: this.pulseTime },
       }));
 
     }
@@ -2035,29 +2070,34 @@ export class DeckGLMap {
     return layers;
   }
 
-  private pulseTime = 0;
-
   private needsPulseAnimation(): boolean {
-    // Earthquake rings fade in and out, so the clock has to keep ticking while any is visible.
-    if (this.state.layers.earthquakes && this.getVisibleEarthquakes(Date.now()).length > 0) return true;
-    return this.hasRecentNews(Date.now())
-      || this.protestClusters.some(c => c.maxSeverity === 'high' || c.hasRiot)
-      || this.hotspots.some(h => h.level === 'high' || h.hasBreaking);
+    // Earthquake rings are static (Daniel, 2026-11-25): they used to breathe on this clock,
+    // which kept the 250 ms full-map redraw running permanently, since some M4+ quake from the
+    // last 7 days is always on the map. That was ~90% CPU on the office MacBook Air.
+    const now = Date.now();
+    const layers = this.state.layers;
+    return this.newsArrivals.anyNew(now)
+      || (layers.hotspots && this.hotspotArrivals.anyNew(now))
+      || (layers.protests && this.protestArrivals.anyNew(now))
+      || (layers.earthquakes && this.quakeArrivals.anyNew(now));
+  }
+
+  private isNewProtestCluster(c: MapProtestCluster, now: number): boolean {
+    return c.items.some(e => this.protestArrivals.isNew(e.id, now));
   }
 
   private startPulseAnimation(): void {
     if (this.newsPulseIntervalId !== null) return;
-    const PULSE_UPDATE_INTERVAL_MS = 250;
+    const PULSE_UPDATE_INTERVAL_MS = 1000; // 1 fps: a beat, not an animation
 
     this.newsPulseIntervalId = setInterval(() => {
-      const now = Date.now();
+      // The last tick after every window has closed redraws once more, so the final pulse frame
+      // is replaced by the static ring.
       if (!this.needsPulseAnimation()) {
-        this.pulseTime = now;
         this.stopPulseAnimation();
         this.rafUpdateLayers();
         return;
       }
-      this.pulseTime = now;
       this.rafUpdateLayers();
     }, PULSE_UPDATE_INTERVAL_MS);
   }
@@ -2087,8 +2127,7 @@ export class DeckGLMap {
       info: 80,
     };
 
-    const now = this.pulseTime || Date.now();
-    const PULSE_DURATION = 30_000;
+    const now = Date.now();
 
     const layers: ScatterplotLayer[] = [
       new ScatterplotLayer({
@@ -2107,13 +2146,12 @@ export class DeckGLMap {
       }),
     ];
 
-    const recentNews = this.newsLocations.filter(d => {
-      const firstSeen = this.newsLocationFirstSeen.get(d.title);
-      return firstSeen && (now - firstSeen) < PULSE_DURATION;
-    });
+    // Only stories that arrived after load get a ring; it beats for 10 min, fading as it ages,
+    // then the story is a plain dot.
+    const recentNews = this.newsLocations.filter(d => this.newsArrivals.isNew(d.title, now));
 
     if (recentNews.length > 0) {
-      const pulse = 1.0 + 1.5 * (0.5 + 0.5 * Math.sin(now / 318));
+      const pulse = 1.0 + 1.5 * pulseBeat(now);
 
       layers.push(new ScatterplotLayer({
         id: 'news-pulse-layer',
@@ -2128,14 +2166,13 @@ export class DeckGLMap {
         filled: false,
         getLineColor: (d) => {
           const rgb = THREAT_RGB[d.threatLevel] || [59, 130, 246];
-          const firstSeen = this.newsLocationFirstSeen.get(d.title) || now;
-          const age = now - firstSeen;
-          const fadeOut = Math.max(0, 1 - age / PULSE_DURATION);
+          const age = this.newsArrivals.age(d.title, now) ?? PULSE_WINDOW_MS;
+          const fadeOut = Math.max(0, 1 - age / PULSE_WINDOW_MS);
           const a = Math.round(150 * fadeOut * alphaScale);
           return [...rgb, a] as [number, number, number, number];
         },
         lineWidthMinPixels: 1.5,
-        updateTriggers: { pulseTime: now },
+        updateTriggers: { getLineColor: Math.floor(now / 1000) },
       }));
     }
 
@@ -3098,7 +3135,11 @@ export class DeckGLMap {
   // Data setters - all use render() for debouncing
   public setEarthquakes(earthquakes: Earthquake[]): void {
     this.earthquakes = earthquakes;
+    this.quakeArrivals.observe(this.getVisibleEarthquakes(Date.now()).map(q => q.id));
     this.render();
+    if (this.needsPulseAnimation() && this.newsPulseIntervalId === null) {
+      this.startPulseAnimation();
+    }
   }
 
   public setWeatherAlerts(alerts: WeatherAlert[]): void {
@@ -3127,6 +3168,7 @@ export class DeckGLMap {
 
   public setProtests(events: SocialUnrestEvent[]): void {
     this.protests = events;
+    this.protestArrivals.observe(events.filter(e => e.severity === 'high' || e.eventType === 'riot').map(e => e.id));
     this.rebuildProtestSupercluster();
     this.render();
     if (this.needsPulseAnimation() && this.newsPulseIntervalId === null) {
@@ -3188,23 +3230,13 @@ export class DeckGLMap {
   }
 
   public setNewsLocations(data: MapNewsLocation[]): void {
-    const now = Date.now();
-    for (const d of data) {
-      if (!this.newsLocationFirstSeen.has(d.title)) {
-        this.newsLocationFirstSeen.set(d.title, now);
-      }
-    }
-    for (const [key, ts] of this.newsLocationFirstSeen) {
-      if (now - ts > 60_000) this.newsLocationFirstSeen.delete(key);
-    }
+    // The old code forgot a headline 60 s after first sight, so the next refresh re-pulsed it
+    // as if new. The tracker keeps a headline for as long as it stays in the data.
+    this.newsArrivals.observe(data.map(d => d.title));
     this.newsLocations = data;
     this.render();
-
-    const hasRecent = this.hasRecentNews(now);
-    if (hasRecent && this.newsPulseIntervalId === null) {
+    if (this.needsPulseAnimation() && this.newsPulseIntervalId === null) {
       this.startPulseAnimation();
-    } else if (!hasRecent) {
-      this.stopPulseAnimation();
     }
   }
 
@@ -3238,6 +3270,7 @@ export class DeckGLMap {
       const velocity = matchCount > 0 ? matchCount / 2 : 0; // 2 hour window
       updateHotspotEscalation(h.id, matchCount, h.hasBreaking || false, velocity);
     });
+    this.hotspotArrivals.observe(this.hotspots.filter(h => h.level === 'high' || h.hasBreaking).map(h => h.id));
 
     this.render();
     if (this.needsPulseAnimation() && this.newsPulseIntervalId === null) {
