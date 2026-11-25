@@ -159,7 +159,17 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         globIgnores: ['**/ml-*.js', '**/onnx*.wasm'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/settings/],
+        // Activate a new build as soon as it installs. Without these the worker only skipped
+        // waiting on a SKIP_WAITING message nobody sends, so a new build sat 'waiting' behind
+        // the old one while any tab stayed open: the always-on office screen never updated, and
+        // its stale worker served the app shell into the /etf-heatmap/ iframe. registerSW's
+        // autoUpdate handler reloads the page on 'activated', which completes the switch.
+        skipWaiting: true,
+        clientsClaim: true,
+        // /etf-heatmap/ is a separate service on this hostname (Traefik path router), embedded
+        // in the Live News panel. Without this the worker answers that iframe's navigation with
+        // the app shell, and worldmonitor ends up running inside its own panel.
+        navigateFallbackDenylist: [/^\/api\//, /^\/settings/, /^\/etf-heatmap(\/|$)/],
 
         runtimeCaching: [
           {
