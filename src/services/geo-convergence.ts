@@ -5,11 +5,15 @@ import { INTEL_HOTSPOTS, CONFLICT_ZONES, STRATEGIC_WATERWAYS } from '@/config/ge
 
 export type GeoEventType = 'protest' | 'military_flight' | 'military_vessel' | 'earthquake';
 
+// Each type holds the DISTINCT events seen in the cell (event key -> last seen), not a tally.
+// Every poll re-delivers the same aircraft, vessels and quakes, so a counter grew with how long
+// the tab had been open rather than with what was happening: a screen left up for a day showed
+// far higher convergence scores than a fresh one. The size of the map is the event count.
 interface GeoCell {
   id: string;
   lat: number;
   lon: number;
-  events: Map<GeoEventType, { count: number; lastSeen: Date }>;
+  events: Map<GeoEventType, Map<string, Date>>;
   firstSeen: Date;
 }
 
@@ -25,6 +29,7 @@ export function ingestGeoEvent(
   lat: number,
   lon: number,
   type: GeoEventType,
+  key: string,
   timestamp: Date = new Date()
 ): void {
   const cellId = getCellId(lat, lon);
@@ -41,21 +46,32 @@ export function ingestGeoEvent(
     cells.set(cellId, cell);
   }
 
-  const existing = cell.events.get(type);
-  cell.events.set(type, {
-    count: (existing?.count ?? 0) + 1,
-    lastSeen: timestamp,
-  });
+  let seen = cell.events.get(type);
+  if (!seen) {
+    seen = new Map();
+    cell.events.set(type, seen);
+  }
+  const previous = seen.get(key);
+  if (!previous || timestamp.getTime() > previous.getTime()) {
+    seen.set(key, timestamp);
+  }
+}
+
+function eventCount(cell: GeoCell): number {
+  let total = 0;
+  for (const seen of cell.events.values()) total += seen.size;
+  return total;
 }
 
 function pruneOldEvents(): void {
   const cutoff = Date.now() - WINDOW_MS;
 
   for (const [cellId, cell] of cells) {
-    for (const [type, data] of cell.events) {
-      if (data.lastSeen.getTime() < cutoff) {
-        cell.events.delete(type);
+    for (const [type, seen] of cell.events) {
+      for (const [key, lastSeen] of seen) {
+        if (lastSeen.getTime() < cutoff) seen.delete(key);
       }
+      if (seen.size === 0) cell.events.delete(type);
     }
     if (cell.events.size === 0) {
       cells.delete(cellId);
@@ -65,25 +81,25 @@ function pruneOldEvents(): void {
 
 export function ingestProtests(events: SocialUnrestEvent[]): void {
   for (const e of events) {
-    ingestGeoEvent(e.lat, e.lon, 'protest', e.time);
+    ingestGeoEvent(e.lat, e.lon, 'protest', e.id, e.time);
   }
 }
 
 export function ingestFlights(flights: MilitaryFlight[]): void {
   for (const f of flights) {
-    ingestGeoEvent(f.lat, f.lon, 'military_flight', f.lastSeen);
+    ingestGeoEvent(f.lat, f.lon, 'military_flight', f.hexCode || f.id, f.lastSeen);
   }
 }
 
 export function ingestVessels(vessels: MilitaryVessel[]): void {
   for (const v of vessels) {
-    ingestGeoEvent(v.lat, v.lon, 'military_vessel', v.lastAisUpdate);
+    ingestGeoEvent(v.lat, v.lon, 'military_vessel', v.mmsi || v.id, v.lastAisUpdate);
   }
 }
 
 export function ingestEarthquakes(quakes: Earthquake[]): void {
   for (const q of quakes) {
-    ingestGeoEvent(q.lat, q.lon, 'earthquake', q.time);
+    ingestGeoEvent(q.lat, q.lon, 'earthquake', q.id, q.time);
   }
 }
 
@@ -106,8 +122,7 @@ export function detectGeoConvergence(seenAlerts: Set<string>): GeoConvergenceAle
       if (seenAlerts.has(cellId)) continue;
 
       const types = Array.from(cell.events.keys());
-      const totalEvents = Array.from(cell.events.values())
-        .reduce((sum, d) => sum + d.count, 0);
+      const totalEvents = eventCount(cell);
 
       const typeScore = cell.events.size * 25;
       const countBoost = Math.min(25, totalEvents * 2);
@@ -216,10 +231,10 @@ export function debugInjectTestEvents(): void {
   const now = new Date();
   const testLat = 25.5;
   const testLon = 121.5;
-  ingestGeoEvent(testLat, testLon, 'protest', now);
-  ingestGeoEvent(testLat, testLon, 'military_flight', now);
-  ingestGeoEvent(testLat, testLon, 'military_vessel', now);
-  ingestGeoEvent(testLat + 0.3, testLon + 0.2, 'earthquake', now);
+  ingestGeoEvent(testLat, testLon, 'protest', 'debug-protest', now);
+  ingestGeoEvent(testLat, testLon, 'military_flight', 'debug-military_flight', now);
+  ingestGeoEvent(testLat, testLon, 'military_vessel', 'debug-military_vessel', now);
+  ingestGeoEvent(testLat + 0.3, testLon + 0.2, 'earthquake', 'debug-earthquake', now);
   console.log('[GeoConvergence] Injected 4 test events at Taiwan Strait region');
 }
 
@@ -237,7 +252,7 @@ export function getAlertsNearLocation(lat: number, lon: number, radiusKm: number
     const dist = haversineKm(lat, lon, cell.lat, cell.lon);
     if (dist <= radiusKm && cell.events.size >= 2) {
       const types = cell.events.size;
-      const totalEvents = Array.from(cell.events.values()).reduce((sum, d) => sum + d.count, 0);
+      const totalEvents = eventCount(cell);
       const typeScore = types * 25;
       const countBoost = Math.min(25, totalEvents * 2);
       const score = Math.min(100, typeScore + countBoost);
