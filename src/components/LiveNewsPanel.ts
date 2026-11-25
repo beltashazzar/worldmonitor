@@ -78,10 +78,19 @@ const TECH_LIVE_CHANNELS: LiveChannel[] = [
 
 const LIVE_CHANNELS = SITE_VARIANT === 'tech' ? TECH_LIVE_CHANNELS : FULL_LIVE_CHANNELS;
 
+// The panel opens on the ETF heatmap (the etf-heatmap service, routed by Traefik under this
+// same hostname) and only loads video when Video is picked. The screen it lives on is always
+// on and rarely watched for video, so an idle page should not be streaming. Deliberately not
+// persisted: every load starts on the heatmap.
+type PanelMode = 'heatmap' | 'video';
+const HEATMAP_URL = '/etf-heatmap/?embed=1';
+const MODE_TITLES: Record<PanelMode, string> = { heatmap: 'ETF Heatmap', video: 'Live News' };
+
 export class LiveNewsPanel extends Panel {
   private static apiPromise: Promise<void> | null = null;
   private activeChannel: LiveChannel = LIVE_CHANNELS[0]!;
   private channelSwitcher: HTMLElement | null = null;
+  private mode: PanelMode = 'heatmap';
   private isMuted = true;
   private isPlaying = true;
   private wasPlayingBeforeIdle = true;
@@ -117,9 +126,60 @@ export class LiveNewsPanel extends Panel {
     this.createLiveButton();
     this.createMuteButton();
     this.createChannelSwitcher();
+    this.createModeSwitch();
     this.setupBridgeMessageListener();
-    this.renderPlayer();
+    this.applyMode();
     this.setupIdleDetection();
+  }
+
+  private createModeSwitch(): void {
+    if (!this.channelSwitcher) return;
+    const group = document.createElement('div');
+    group.className = 'live-mode-switch';
+    (['heatmap', 'video'] as const).forEach(mode => {
+      const btn = document.createElement('button');
+      btn.className = 'live-mode-btn';
+      btn.dataset.mode = mode;
+      btn.textContent = mode === 'heatmap' ? 'Heatmap' : 'Video';
+      btn.addEventListener('click', () => this.setMode(mode));
+      group.appendChild(btn);
+    });
+    this.channelSwitcher.prepend(group);
+  }
+
+  private setMode(mode: PanelMode): void {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.applyMode();
+  }
+
+  private applyMode(): void {
+    const isVideo = this.mode === 'video';
+    this.element.classList.toggle('live-news-heatmap-mode', !isVideo);
+    const title = this.header.querySelector('.panel-title');
+    if (title) title.textContent = MODE_TITLES[this.mode];
+    this.channelSwitcher?.querySelectorAll<HTMLElement>('.live-mode-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mode === this.mode);
+    });
+
+    if (isVideo) {
+      // Picking Video is an explicit ask to watch, whatever idle had paused before.
+      this.isPlaying = true;
+      this.wasPlayingBeforeIdle = true;
+      this.updateLiveIndicator();
+      this.renderPlayer();
+      return;
+    }
+
+    this.destroyPlayer();
+    this.playerContainer = null;
+    this.playerElement = null;
+    const frame = document.createElement('iframe');
+    frame.className = 'live-news-heatmap';
+    frame.src = HEATMAP_URL;
+    frame.title = 'ETF heatmap';
+    frame.setAttribute('loading', 'eager');
+    this.content.replaceChildren(frame);
   }
 
   private setupBridgeMessageListener(): void {
@@ -195,6 +255,7 @@ export class LiveNewsPanel extends Panel {
   }
 
   private pauseForIdle(): void {
+    if (this.mode !== 'video') return;
     if (this.isPlaying) {
       this.wasPlayingBeforeIdle = true;
       this.isPlaying = false;
@@ -230,6 +291,7 @@ export class LiveNewsPanel extends Panel {
   }
 
   private resumeFromIdle(): void {
+    if (this.mode !== 'video') return;
     if (this.wasPlayingBeforeIdle && !this.isPlaying) {
       this.isPlaying = true;
       this.updateLiveIndicator();
@@ -348,6 +410,7 @@ export class LiveNewsPanel extends Panel {
     });
 
     await this.resolveChannelVideo(channel);
+    if (this.mode !== 'video') return;
 
     this.channelSwitcher?.querySelectorAll('.live-channel-btn').forEach(btn => {
       const btnEl = btn as HTMLElement;
@@ -550,6 +613,8 @@ export class LiveNewsPanel extends Panel {
     const useFallbackVideo = this.activeChannel.useFallbackOnly || this.forceFallbackVideoForNextInit;
     this.forceFallbackVideoForNextInit = false;
     await this.resolveChannelVideo(this.activeChannel, useFallbackVideo);
+    // The viewer may have gone back to the heatmap while the lookup was in flight.
+    if (this.mode !== 'video') return;
 
     if (!this.activeChannel.videoId) {
       this.showOfflineMessage(this.activeChannel);
