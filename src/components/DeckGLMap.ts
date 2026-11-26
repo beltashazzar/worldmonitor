@@ -237,6 +237,31 @@ function quakeRadiusPx(magnitude: number): number {
   return QUAKE_MIN_RADIUS_PX + t * (QUAKE_MAX_RADIUS_PX - QUAKE_MIN_RADIUS_PX);
 }
 
+const NEWS_THREAT_RGB: Record<string, [number, number, number]> = {
+  critical: [239, 68, 68],
+  high: [249, 115, 22],
+  medium: [234, 179, 8],
+  low: [34, 197, 94],
+  info: [59, 130, 246],
+};
+
+/** One pulsing ring in the DOM overlay. Radius is in pixels, before the beat is applied. */
+interface PulseRing {
+  lon: number;
+  lat: number;
+  radiusPx: number;
+  grow: number;          // how much the beat enlarges the ring (0.8 = up to 1.8x)
+  rgb: [number, number, number];
+  alpha: number;         // 0..1
+  width: number;         // border px
+}
+
+/** Mirrors deck.gl's metre radius at this zoom and latitude, clamped like radiusMin/MaxPixels. */
+function metresToRingPx(metres: number, lat: number, zoom: number, minPx: number, maxPx: number): number {
+  const metresPerPixel = (40075016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 2 ** zoom);
+  return Math.min(maxPx, Math.max(minPx, metres / Math.max(metresPerPixel, 1e-6)));
+}
+
 export type MilitaryFlightScope = 'all' | 'theater';
 
 // Reuses the same theater boxes the posture panel scores against, so "Theatre" on the map
@@ -310,6 +335,12 @@ export class DeckGLMap {
   private hotspotArrivals = new ArrivalTracker();   // by hotspot id, while high or breaking
   private protestArrivals = new ArrivalTracker();   // by event id, high-severity or riot events
   private quakeArrivals = new ArrivalTracker();     // by USGS id
+  // New items pulse as small DOM rings over the map rather than as deck.gl layers. A deck.gl
+  // layer change repaints the whole map canvas (~35 draw calls); on the office MacBook Air that
+  // held Safari at ~80% CPU for every 10-minute pulse window. The overlay touches a few
+  // elements per second and the canvases repaint only when data or the view changes.
+  private pulseOverlay: HTMLDivElement | null = null;
+  private lastNewSignature = '';
   private ucdpEvents: UcdpGeoEvent[] = [];
   private displacementFlows: DisplacementFlow[] = [];
   private climateAnomalies: ClimateAnomaly[] = [];
@@ -542,6 +573,14 @@ export class DeckGLMap {
         this.lastZoomThreshold = currentZoom;
         this.debouncedRebuildLayers();
       }
+    });
+
+    // Appended after the deck canvas, so the rings draw above the layers and under the controls.
+    this.pulseOverlay = document.createElement('div');
+    this.pulseOverlay.className = 'map-pulse-overlay';
+    this.maplibreMap.getContainer().appendChild(this.pulseOverlay);
+    this.maplibreMap.on('move', () => {
+      if (this.pulseOverlay?.childElementCount) this.renderPulseOverlay();
     });
   }
 
@@ -1406,12 +1445,9 @@ export class DeckGLMap {
   }
 
   private createEarthquakesLayer(): ScatterplotLayer {
-    // Brightness is the 7-day age fade. A quake reported after load also beats at 1 fps for its
-    // first 10 min; the rest are static. Ghost picking uses the same quantised clock.
+    // Brightness is the 7-day age fade. A quake reported after load gets a beating ring from the
+    // DOM pulse overlay for its first 10 min. Ghost picking uses the same quantised clock.
     const now = this.quakeClock();
-    const wall = Date.now();
-    const beat = 0.45 + 0.55 * pulseBeat(wall);
-    const anyNew = this.quakeArrivals.anyNew(wall);
 
     return new ScatterplotLayer({
       id: 'earthquakes-layer',
@@ -1430,11 +1466,10 @@ export class DeckGLMap {
         const rgb = quakeTier(d.magnitude).rgb;
         const age = now - d.time.getTime();
         const decay = Math.max(0, 1 - age / QUAKE_DECAY_MS);
-        const flash = anyNew && this.quakeArrivals.isNew(d.id, wall) ? beat : 1;
-        return [...rgb, Math.round(255 * decay * flash)] as [number, number, number, number];
+        return [...rgb, Math.round(255 * decay)] as [number, number, number, number];
       },
       pickable: true,
-      updateTriggers: { getLineColor: anyNew ? `${now}:${Math.floor(wall / 1000)}` : now },
+      updateTriggers: { getLineColor: now },
     });
   }
 
@@ -1828,11 +1863,10 @@ export class DeckGLMap {
     // an event that arrived after load, and is static otherwise.
     const ringClusters = this.protestClusters.filter(c => c.maxSeverity === 'high' || c.hasRiot);
     const ringNow = Date.now();
-    const newClusters = ringClusters.filter(c => this.isNewProtestCluster(c, ringNow));
+    // New clusters are drawn by the DOM pulse overlay; deck.gl keeps only the static rings.
     const staticClusters = ringClusters.filter(c => !this.isNewProtestCluster(c, ringNow));
     for (const [id, data, pulse] of [
       ['protest-clusters-ring', staticClusters, 1.4],
-      ['protest-clusters-pulse', newClusters, 1.0 + 0.8 * pulseBeat(ringNow)],
     ] as const) {
       if (data.length === 0) continue;
       layers.push(new ScatterplotLayer<MapProtestCluster>({
@@ -2035,13 +2069,12 @@ export class DeckGLMap {
 
     layers.push(this.createGhostLayer('hotspots-layer', this.hotspots, d => [d.lon, d.lat], { radiusMinPixels: 14 }));
 
-    // High/breaking hotspots always carry a ring: it beats at 1 fps for 10 min after the hotspot
-    // escalated (after load), and is static otherwise.
+    // High/breaking hotspots carry a static ring. For 10 min after a hotspot escalates (after
+    // load) the DOM pulse overlay draws a beating ring instead, and deck.gl draws none for it.
     const highHotspots = this.hotspots.filter(h => h.level === 'high' || h.hasBreaking);
     const ringNow = Date.now();
     for (const [id, data, pulse] of [
       ['hotspots-ring', highHotspots.filter(h => !this.hotspotArrivals.isNew(h.id, ringNow)), 1.4],
-      ['hotspots-pulse', highHotspots.filter(h => this.hotspotArrivals.isNew(h.id, ringNow)), 1.0 + 0.8 * pulseBeat(ringNow)],
     ] as const) {
       if (data.length === 0) continue;
       layers.push(new ScatterplotLayer({
@@ -2091,15 +2124,103 @@ export class DeckGLMap {
     const PULSE_UPDATE_INTERVAL_MS = 1000; // 1 fps: a beat, not an animation
 
     this.newsPulseIntervalId = setInterval(() => {
-      // The last tick after every window has closed redraws once more, so the final pulse frame
-      // is replaced by the static ring.
+      const now = Date.now();
       if (!this.needsPulseAnimation()) {
+        // Last window closed: clear the rings and let deck.gl draw the static ones.
         this.stopPulseAnimation();
+        this.lastNewSignature = '';
         this.rafUpdateLayers();
         return;
       }
-      this.rafUpdateLayers();
+      // deck.gl repaints only when an item joins or leaves the new set (it then gains or loses
+      // its static ring). Every other tick touches just the overlay.
+      const signature = this.newItemsSignature(now);
+      if (signature !== this.lastNewSignature) {
+        this.lastNewSignature = signature;
+        this.rafUpdateLayers();
+      }
+      this.renderPulseOverlay(now);
     }, PULSE_UPDATE_INTERVAL_MS);
+  }
+
+  private newItemsSignature(now: number): string {
+    return [this.newsArrivals, this.hotspotArrivals, this.protestArrivals, this.quakeArrivals]
+      .map(t => t.newKeys(now).sort().join(','))
+      .join('|');
+  }
+
+  /** Rings for every item inside its pulse window, honouring the layer toggles. */
+  private collectPulseRings(now: number): PulseRing[] {
+    const layers = this.state.layers;
+    const zoom = this.maplibreMap?.getZoom() ?? 2;
+    const rings: PulseRing[] = [];
+
+    const newsAlphaScale = zoom < 2.5 ? 0.4 : zoom < 4 ? 0.7 : 1.0;
+    for (const d of this.newsLocations) {
+      const age = this.newsArrivals.age(d.title, now);
+      if (age === null) continue;
+      const fade = Math.max(0, 1 - age / PULSE_WINDOW_MS);
+      rings.push({
+        lon: d.lon, lat: d.lat, radiusPx: metresToRingPx(18000, d.lat, zoom, 6, 30), grow: 1.5,
+        rgb: NEWS_THREAT_RGB[d.threatLevel] || [59, 130, 246], alpha: (150 / 255) * fade * newsAlphaScale, width: 1.5,
+      });
+    }
+
+    if (layers.hotspots) {
+      const hotspotOpacity = zoom < 2.5 ? 0.5 : zoom < 4 ? 0.7 : 1.0;
+      for (const h of this.hotspots) {
+        if (!(h.level === 'high' || h.hasBreaking) || !this.hotspotArrivals.isNew(h.id, now)) continue;
+        rings.push({
+          lon: h.lon, lat: h.lat, radiusPx: metresToRingPx(10000 + (h.escalationScore || 1) * 5000, h.lat, zoom, 6, 30), grow: 0.8,
+          rgb: h.hasBreaking ? [255, 50, 50] : [255, 165, 0], alpha: (120 / 255) * hotspotOpacity, width: 1.5,
+        });
+      }
+    }
+
+    if (layers.protests) {
+      for (const c of this.protestClusters) {
+        if (!(c.maxSeverity === 'high' || c.hasRiot) || !this.isNewProtestCluster(c, now)) continue;
+        rings.push({
+          lon: c.lon, lat: c.lat, radiusPx: metresToRingPx(15000 + c.count * 2000, c.lat, zoom, 8, 30), grow: 0.8,
+          rgb: c.hasRiot ? [220, 40, 40] : [255, 80, 60], alpha: c.hasRiot ? 120 / 255 : 100 / 255, width: 1.5,
+        });
+      }
+    }
+
+    if (layers.earthquakes) {
+      for (const q of this.getVisibleEarthquakes(now)) {
+        if (!this.quakeArrivals.isNew(q.id, now)) continue;
+        rings.push({
+          lon: q.lon, lat: q.lat, radiusPx: quakeRadiusPx(q.magnitude) + 3, grow: 0.5,
+          rgb: quakeTier(q.magnitude).rgb, alpha: 0.9, width: 2,
+        });
+      }
+    }
+    return rings;
+  }
+
+  /** Steps every pulsing ring to the current beat. Cheap: a handful of absolutely placed divs. */
+  private renderPulseOverlay(now = Date.now()): void {
+    const overlay = this.pulseOverlay;
+    const map = this.maplibreMap;
+    if (!overlay || !map) return;
+    const rings = this.collectPulseRings(now);
+    if (rings.length === 0) {
+      if (overlay.childElementCount) overlay.replaceChildren();
+      return;
+    }
+    const beat = pulseBeat(now);
+    overlay.replaceChildren(...rings.map(r => {
+      const p = map.project([r.lon, r.lat]);
+      const radius = r.radiusPx * (1 + r.grow * beat);
+      const el = document.createElement('div');
+      el.className = 'map-pulse-ring';
+      el.style.width = el.style.height = `${(2 * radius).toFixed(1)}px`;
+      el.style.borderWidth = `${r.width}px`;
+      el.style.borderColor = `rgba(${r.rgb[0]},${r.rgb[1]},${r.rgb[2]},${r.alpha.toFixed(3)})`;
+      el.style.transform = `translate(${(p.x - radius).toFixed(1)}px,${(p.y - radius).toFixed(1)}px)`;
+      return el;
+    }));
   }
 
   private stopPulseAnimation(): void {
@@ -2107,18 +2228,13 @@ export class DeckGLMap {
       clearInterval(this.newsPulseIntervalId);
       this.newsPulseIntervalId = null;
     }
+    this.pulseOverlay?.replaceChildren();
   }
 
   private createNewsLocationsLayer(): ScatterplotLayer[] {
     const zoom = this.maplibreMap?.getZoom() || 2;
     const alphaScale = zoom < 2.5 ? 0.4 : zoom < 4 ? 0.7 : 1.0;
-    const THREAT_RGB: Record<string, [number, number, number]> = {
-      critical: [239, 68, 68],
-      high: [249, 115, 22],
-      medium: [234, 179, 8],
-      low: [34, 197, 94],
-      info: [59, 130, 246],
-    };
+    const THREAT_RGB = NEWS_THREAT_RGB;
     const THREAT_ALPHA: Record<string, number> = {
       critical: 220,
       high: 190,
@@ -2126,8 +2242,6 @@ export class DeckGLMap {
       low: 120,
       info: 80,
     };
-
-    const now = Date.now();
 
     const layers: ScatterplotLayer[] = [
       new ScatterplotLayer({
@@ -2146,36 +2260,7 @@ export class DeckGLMap {
       }),
     ];
 
-    // Only stories that arrived after load get a ring; it beats for 10 min, fading as it ages,
-    // then the story is a plain dot.
-    const recentNews = this.newsLocations.filter(d => this.newsArrivals.isNew(d.title, now));
-
-    if (recentNews.length > 0) {
-      const pulse = 1.0 + 1.5 * pulseBeat(now);
-
-      layers.push(new ScatterplotLayer({
-        id: 'news-pulse-layer',
-        data: recentNews,
-        getPosition: (d) => [d.lon, d.lat],
-        getRadius: 18000,
-        radiusScale: pulse,
-        radiusMinPixels: 6,
-        radiusMaxPixels: 30,
-        pickable: false,
-        stroked: true,
-        filled: false,
-        getLineColor: (d) => {
-          const rgb = THREAT_RGB[d.threatLevel] || [59, 130, 246];
-          const age = this.newsArrivals.age(d.title, now) ?? PULSE_WINDOW_MS;
-          const fadeOut = Math.max(0, 1 - age / PULSE_WINDOW_MS);
-          const a = Math.round(150 * fadeOut * alphaScale);
-          return [...rgb, a] as [number, number, number, number];
-        },
-        lineWidthMinPixels: 1.5,
-        updateTriggers: { getLineColor: Math.floor(now / 1000) },
-      }));
-    }
-
+    // Stories that arrived after load get a beating ring from the DOM pulse overlay.
     return layers;
   }
 

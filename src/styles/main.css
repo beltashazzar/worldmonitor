@@ -12411,3 +12411,21 @@ body.has-critical-banner .panels-grid {
   border: 0;
   background: #0f1117;
 }
+
+/* Pulse rings for newly arrived map items (DeckGLMap.renderPulseOverlay). Stepped once a second
+   from JS, not CSS-animated, so idle mode's animation pause does not freeze them. */
+.map-pulse-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.map-pulse-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border-style: solid;
+  border-radius: 50%;
+}

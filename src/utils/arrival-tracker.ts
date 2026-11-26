@@ -35,6 +35,13 @@ export class ArrivalTracker {
     return this.age(key, now) !== null;
   }
 
+  /** Keys still inside their pulse window, for detecting when the set of new items changes. */
+  newKeys(now = Date.now()): string[] {
+    const keys: string[] = [];
+    for (const [key, t] of this.firstSeen) if (t && now - t < PULSE_WINDOW_MS) keys.push(key);
+    return keys;
+  }
+
   anyNew(now = Date.now()): boolean {
     for (const t of this.firstSeen.values()) {
       if (t && now - t < PULSE_WINDOW_MS) return true;
