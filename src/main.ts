@@ -3,6 +3,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { inject } from '@vercel/analytics';
 import { App } from './App';
 import { debugInjectTestEvents, debugGetCells, getCellCount } from '@/services/geo-convergence';
+import { startWeeklyReload } from '@/services/weekly-reload';
 import { initMetaTags } from '@/services/meta-tags';
 import { installRuntimeFetchPatch } from '@/services/runtime';
 import { loadDesktopSecrets } from '@/services/runtime-config';
@@ -28,6 +29,7 @@ app.init().catch(console.error);
 };
 
 if (!('__TAURI_INTERNALS__' in window) && !('__TAURI__' in window)) {
+  startWeeklyReload();
   import('virtual:pwa-register').then(({ registerSW }) => {
     registerSW({
       onRegisteredSW(_swUrl, registration) {
